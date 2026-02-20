@@ -2,11 +2,17 @@
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
 
+mod safe_math;
+use crate::safe_math::*;
+
 #[contracterror]
 #[repr(u32)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     NotFound = 404,
     Unauthorized = 401,
+    Overflow = 500,
+    Underflow = 501,
 }
 
 #[contracttype]
@@ -53,7 +59,9 @@ impl SubscriptionVault {
         usage_enabled: bool,
     ) -> Result<u32, Error> {
         subscriber.require_auth();
+        validate_non_negative(amount)?;
         // TODO: transfer initial deposit from subscriber to contract, then store subscription
+        // When implementing deposit transfer, use safe_add_balance() to set prepaid_balance
         let sub = Subscription {
             subscriber: subscriber.clone(),
             merchant,
@@ -77,15 +85,31 @@ impl SubscriptionVault {
         amount: i128,
     ) -> Result<(), Error> {
         subscriber.require_auth();
-        // TODO: transfer USDC from subscriber, increase prepaid_balance for subscription_id
-        let _ = (env, subscription_id, amount);
+        validate_non_negative(amount)?;
+        // TODO: transfer USDC from subscriber to contract
+        let mut sub: Subscription = env
+            .storage()
+            .instance()
+            .get(&subscription_id)
+            .ok_or(Error::NotFound)?;
+        sub.prepaid_balance = safe_add_balance(sub.prepaid_balance, amount)?;
+        env.storage().instance().set(&subscription_id, &sub);
         Ok(())
     }
 
     /// Billing engine (backend) calls this to charge one interval. Deducts from vault, pays merchant.
-    pub fn charge_subscription(_env: Env, _subscription_id: u32) -> Result<(), Error> {
+    pub fn charge_subscription(env: Env, subscription_id: u32) -> Result<(), Error> {
         // TODO: require_caller admin or authorized billing service
-        // TODO: load subscription, check interval and balance, transfer to merchant, update last_payment_timestamp and prepaid_balance
+        let mut sub: Subscription = env
+            .storage()
+            .instance()
+            .get(&subscription_id)
+            .ok_or(Error::NotFound)?;
+        // TODO: check interval has elapsed before charging
+        // TODO: transfer USDC to merchant
+        sub.prepaid_balance = safe_sub_balance(sub.prepaid_balance, sub.amount)?;
+        sub.last_payment_timestamp = env.ledger().timestamp();
+        env.storage().instance().set(&subscription_id, &sub);
         Ok(())
     }
 
@@ -117,10 +141,13 @@ impl SubscriptionVault {
     pub fn withdraw_merchant_funds(
         _env: Env,
         merchant: Address,
-        _amount: i128,
+        amount: i128,
     ) -> Result<(), Error> {
         merchant.require_auth();
-        // TODO: deduct from merchant's balance in contract, transfer token to merchant
+        validate_non_negative(amount)?;
+        // TODO: load merchant's accumulated balance from storage
+        // TODO: use safe_sub_balance() to deduct from merchant's balance
+        // TODO: transfer token to merchant
         Ok(())
     }
 
