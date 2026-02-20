@@ -51,3 +51,5 @@ coverage/
 *.profraw
 *.profdata
 tarpaulin-report.html
+
+test_snapshots/
