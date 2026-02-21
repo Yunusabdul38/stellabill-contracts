@@ -12,6 +12,15 @@ pub enum Error {
     InvalidAmount = 403,
     InsufficientAllowance = 405,
     TransferFailed = 406,
+    InsufficientBalance = 407,
+    InvalidStatus = 408,
+    ArithmeticOverflow = 409,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub enum DataKey {
+    MerchantBalance(Address),
 }
 
 #[contracttype]
@@ -162,10 +171,43 @@ impl SubscriptionVault {
         Ok(())
     }
 
-    /// Billing engine (backend) calls this to charge one interval. Deducts from vault, pays merchant.
-    pub fn charge_subscription(_env: Env, _subscription_id: u32) -> Result<(), Error> {
-        // TODO: require_caller admin or authorized billing service
-        // TODO: load subscription, check interval and balance, transfer to merchant, update last_payment_timestamp and prepaid_balance
+    /// Charge one billing interval and accrue earnings to the merchant's internal balance.
+    ///
+    /// On success this atomically:
+    /// 1. debits `subscription.prepaid_balance` by `subscription.amount`
+    /// 2. credits the merchant's aggregate balance ledger by the same amount
+    /// 3. updates `last_payment_timestamp`
+    ///
+    /// Tokens are not transferred to the merchant here. They remain in the vault until
+    /// `withdraw_merchant_funds` is called.
+    pub fn charge_subscription(env: Env, subscription_id: u32) -> Result<(), Error> {
+        let mut subscription: Subscription = env
+            .storage()
+            .instance()
+            .get(&subscription_id)
+            .ok_or(Error::NotFound)?;
+
+        if subscription.status != SubscriptionStatus::Active {
+            return Err(Error::InvalidStatus);
+        }
+
+        if subscription.prepaid_balance < subscription.amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let updated_prepaid = subscription
+            .prepaid_balance
+            .checked_sub(subscription.amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        let current_merchant_balance = Self::read_merchant_balance(&env, &subscription.merchant);
+        let updated_merchant_balance = current_merchant_balance
+            .checked_add(subscription.amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+
+        subscription.prepaid_balance = updated_prepaid;
+        subscription.last_payment_timestamp = env.ledger().timestamp();
+        env.storage().instance().set(&subscription_id, &subscription);
+        Self::write_merchant_balance(&env, &subscription.merchant, updated_merchant_balance);
         Ok(())
     }
 
@@ -193,15 +235,45 @@ impl SubscriptionVault {
         Ok(())
     }
 
-    /// Merchant withdraws accumulated USDC to their wallet.
+    /// Merchant withdraws accumulated USDC from their internal earned balance.
+    ///
+    /// This debits internal merchant earnings first and then transfers the same amount of
+    /// tokens from vault custody to the merchant wallet. This prevents double spending across
+    /// repeated withdraw calls.
     pub fn withdraw_merchant_funds(
-        _env: Env,
+        env: Env,
         merchant: Address,
-        _amount: i128,
+        amount: i128,
     ) -> Result<(), Error> {
         merchant.require_auth();
-        // TODO: deduct from merchant's balance in contract, transfer token to merchant
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let current_balance = Self::read_merchant_balance(&env, &merchant);
+        if current_balance < amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let updated_balance = current_balance
+            .checked_sub(amount)
+            .ok_or(Error::ArithmeticOverflow)?;
+        Self::write_merchant_balance(&env, &merchant, updated_balance);
+
+        let token_address: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "token"))
+            .ok_or(Error::NotFound)?;
+        let token_client = token::Client::new(&env, &token_address);
+        let contract_address = env.current_contract_address();
+        token_client.transfer(&contract_address, &merchant, &amount);
         Ok(())
+    }
+
+    /// Returns the internal earned balance currently available for a merchant to withdraw.
+    pub fn get_merchant_balance(env: Env, merchant: Address) -> Result<i128, Error> {
+        Ok(Self::read_merchant_balance(&env, &merchant))
     }
 
     /// Read subscription by id (for indexing and UI).
@@ -217,6 +289,19 @@ impl SubscriptionVault {
         let id: u32 = env.storage().instance().get(&key).unwrap_or(0);
         env.storage().instance().set(&key, &(id + 1));
         id
+    }
+
+    fn read_merchant_balance(env: &Env, merchant: &Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MerchantBalance(merchant.clone()))
+            .unwrap_or(0i128)
+    }
+
+    fn write_merchant_balance(env: &Env, merchant: &Address, balance: i128) {
+        env.storage()
+            .instance()
+            .set(&DataKey::MerchantBalance(merchant.clone()), &balance);
     }
 }
 

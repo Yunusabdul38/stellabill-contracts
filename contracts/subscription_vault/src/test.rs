@@ -46,6 +46,34 @@ impl TestCtx {
     fn token_client(&self) -> token::Client<'_> {
         token::Client::new(&self.env, &self.token_address)
     }
+
+    fn stellar_asset_client(&self) -> token::StellarAssetClient<'_> {
+        token::StellarAssetClient::new(&self.env, &self.token_address)
+    }
+
+    fn mint_to(&self, recipient: &Address, amount: i128) {
+        self.stellar_asset_client().mint(recipient, &amount);
+    }
+
+    fn approve_vault_spend(&self, subscriber: &Address, amount: i128) {
+        self.token_client().approve(
+            subscriber,
+            &self.contract_id,
+            &amount,
+            &self.env.ledger().sequence().saturating_add(500),
+        );
+    }
+
+    fn create_subscription_for(
+        &self,
+        subscriber: &Address,
+        merchant: &Address,
+        amount: i128,
+    ) -> u32 {
+        self.approve_vault_spend(subscriber, amount);
+        self.client()
+            .create_subscription(subscriber, merchant, &amount, &3600u64, &false)
+    }
 }
 
 #[test]
@@ -75,12 +103,7 @@ fn test_create_subscription_initializes_prepaid_and_transfers_tokens() {
     let merchant = Address::generate(&ctx.env);
     let amount = 10_000000i128;
 
-    token_client.approve(
-        &ctx.subscriber,
-        &ctx.contract_id,
-        &amount,
-        &ctx.env.ledger().sequence().saturating_add(500),
-    );
+    ctx.approve_vault_spend(&ctx.subscriber, amount);
 
     let before_subscriber = token_client.balance(&ctx.subscriber);
     let before_vault = token_client.balance(&ctx.contract_id);
@@ -101,7 +124,8 @@ fn test_create_subscription_missing_allowance_fails() {
     let client = ctx.client();
     let merchant = Address::generate(&ctx.env);
 
-    let result = client.try_create_subscription(&ctx.subscriber, &merchant, &5_000000i128, &3600u64, &false);
+    let result =
+        client.try_create_subscription(&ctx.subscriber, &merchant, &5_000000i128, &3600u64, &false);
     assert_eq!(result, Err(Ok(Error::InsufficientAllowance)));
 }
 
@@ -109,16 +133,10 @@ fn test_create_subscription_missing_allowance_fails() {
 fn test_create_subscription_transfer_failure_on_low_balance() {
     let ctx = TestCtx::new();
     let client = ctx.client();
-    let token_client = ctx.token_client();
     let merchant = Address::generate(&ctx.env);
     let amount = 500_000000i128;
 
-    token_client.approve(
-        &ctx.subscriber,
-        &ctx.contract_id,
-        &amount,
-        &ctx.env.ledger().sequence().saturating_add(500),
-    );
+    ctx.approve_vault_spend(&ctx.subscriber, amount);
 
     let result = client.try_create_subscription(&ctx.subscriber, &merchant, &amount, &3600u64, &true);
     assert_eq!(result, Err(Ok(Error::TransferFailed)));
@@ -128,15 +146,9 @@ fn test_create_subscription_transfer_failure_on_low_balance() {
 fn test_create_subscription_zero_or_negative_amount_fails() {
     let ctx = TestCtx::new();
     let client = ctx.client();
-    let token_client = ctx.token_client();
     let merchant = Address::generate(&ctx.env);
 
-    token_client.approve(
-        &ctx.subscriber,
-        &ctx.contract_id,
-        &1_000000i128,
-        &ctx.env.ledger().sequence().saturating_add(500),
-    );
+    ctx.approve_vault_spend(&ctx.subscriber, 1_000000i128);
 
     let zero = client.try_create_subscription(&ctx.subscriber, &merchant, &0i128, &3600u64, &false);
     let negative = client.try_create_subscription(&ctx.subscriber, &merchant, &-1i128, &3600u64, &false);
@@ -149,19 +161,129 @@ fn test_create_subscription_zero_or_negative_amount_fails() {
 fn test_create_subscription_zero_interval_fails() {
     let ctx = TestCtx::new();
     let client = ctx.client();
-    let token_client = ctx.token_client();
     let merchant = Address::generate(&ctx.env);
     let amount = 1_000000i128;
 
-    token_client.approve(
-        &ctx.subscriber,
-        &ctx.contract_id,
-        &amount,
-        &ctx.env.ledger().sequence().saturating_add(500),
-    );
+    ctx.approve_vault_spend(&ctx.subscriber, amount);
 
     let result = client.try_create_subscription(&ctx.subscriber, &merchant, &amount, &0u64, &false);
     assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_charge_subscription_credits_shared_merchant_balance_multiple_subscribers() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let merchant = Address::generate(&ctx.env);
+
+    let subscriber_a = Address::generate(&ctx.env);
+    let subscriber_b = Address::generate(&ctx.env);
+    ctx.mint_to(&subscriber_a, 30_000000i128);
+    ctx.mint_to(&subscriber_b, 40_000000i128);
+
+    let sub_a = ctx.create_subscription_for(&subscriber_a, &merchant, 12_000000i128);
+    let sub_b = ctx.create_subscription_for(&subscriber_b, &merchant, 25_000000i128);
+
+    client.charge_subscription(&sub_a);
+    client.charge_subscription(&sub_b);
+
+    assert_eq!(client.get_merchant_balance(&merchant), 37_000000i128);
+    assert_eq!(client.get_subscription(&sub_a).prepaid_balance, 0i128);
+    assert_eq!(client.get_subscription(&sub_b).prepaid_balance, 0i128);
+}
+
+#[test]
+fn test_charge_subscription_insufficient_prepaid_does_not_credit() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let merchant = Address::generate(&ctx.env);
+
+    let sub_id = ctx.create_subscription_for(&ctx.subscriber, &merchant, 10_000000i128);
+    client.charge_subscription(&sub_id);
+
+    let second_charge = client.try_charge_subscription(&sub_id);
+    assert_eq!(second_charge, Err(Ok(Error::InsufficientBalance)));
+    assert_eq!(client.get_merchant_balance(&merchant), 10_000000i128);
+    assert_eq!(client.get_subscription(&sub_id).status, SubscriptionStatus::Active);
+}
+
+#[test]
+fn test_merchant_balances_are_isolated_across_merchants() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let subscriber_two = Address::generate(&ctx.env);
+    ctx.mint_to(&subscriber_two, 20_000000i128);
+
+    let merchant_a = Address::generate(&ctx.env);
+    let merchant_b = Address::generate(&ctx.env);
+
+    let sub_a = ctx.create_subscription_for(&ctx.subscriber, &merchant_a, 7_000000i128);
+    let sub_b = ctx.create_subscription_for(&subscriber_two, &merchant_b, 13_000000i128);
+
+    client.charge_subscription(&sub_a);
+    client.charge_subscription(&sub_b);
+
+    assert_eq!(client.get_merchant_balance(&merchant_a), 7_000000i128);
+    assert_eq!(client.get_merchant_balance(&merchant_b), 13_000000i128);
+}
+
+#[test]
+fn test_withdraw_merchant_funds_debits_internal_balance_and_transfers_tokens() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let token_client = ctx.token_client();
+    let merchant = Address::generate(&ctx.env);
+
+    let sub_id = ctx.create_subscription_for(&ctx.subscriber, &merchant, 20_000000i128);
+    client.charge_subscription(&sub_id);
+
+    let before_wallet = token_client.balance(&merchant);
+    client.withdraw_merchant_funds(&merchant, &8_000000i128);
+
+    assert_eq!(client.get_merchant_balance(&merchant), 12_000000i128);
+    assert_eq!(token_client.balance(&merchant), before_wallet + 8_000000i128);
+}
+
+#[test]
+fn test_withdraw_merchant_funds_prevents_double_spend() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let merchant = Address::generate(&ctx.env);
+
+    let sub_id = ctx.create_subscription_for(&ctx.subscriber, &merchant, 9_000000i128);
+    client.charge_subscription(&sub_id);
+
+    client.withdraw_merchant_funds(&merchant, &9_000000i128);
+    assert_eq!(client.get_merchant_balance(&merchant), 0i128);
+
+    let second_withdraw = client.try_withdraw_merchant_funds(&merchant, &1_000000i128);
+    assert_eq!(second_withdraw, Err(Ok(Error::InsufficientBalance)));
+}
+
+#[test]
+fn test_large_balance_accumulation_for_single_merchant() {
+    let ctx = TestCtx::new();
+    let client = ctx.client();
+    let merchant = Address::generate(&ctx.env);
+
+    let s1 = Address::generate(&ctx.env);
+    let s2 = Address::generate(&ctx.env);
+    let s3 = Address::generate(&ctx.env);
+    let chunk = 2_000_000_000i128;
+
+    ctx.mint_to(&s1, chunk + 1_000000i128);
+    ctx.mint_to(&s2, chunk + 1_000000i128);
+    ctx.mint_to(&s3, chunk + 1_000000i128);
+
+    let sub1 = ctx.create_subscription_for(&s1, &merchant, chunk);
+    let sub2 = ctx.create_subscription_for(&s2, &merchant, chunk);
+    let sub3 = ctx.create_subscription_for(&s3, &merchant, chunk);
+
+    client.charge_subscription(&sub1);
+    client.charge_subscription(&sub2);
+    client.charge_subscription(&sub3);
+
+    assert_eq!(client.get_merchant_balance(&merchant), chunk * 3);
 }
 
 #[test]
@@ -236,7 +358,13 @@ fn test_invalid_min_topup_rejected() {
         .address();
     let admin = Address::generate(&env);
 
-    assert_eq!(client.try_init(&token_address, &admin, &0i128), Err(Ok(Error::InvalidAmount)));
+    assert_eq!(
+        client.try_init(&token_address, &admin, &0i128),
+        Err(Ok(Error::InvalidAmount))
+    );
     client.init(&token_address, &admin, &1_000000i128);
-    assert_eq!(client.try_set_min_topup(&admin, &0i128), Err(Ok(Error::InvalidAmount)));
+    assert_eq!(
+        client.try_set_min_topup(&admin, &0i128),
+        Err(Ok(Error::InvalidAmount))
+    );
 }
