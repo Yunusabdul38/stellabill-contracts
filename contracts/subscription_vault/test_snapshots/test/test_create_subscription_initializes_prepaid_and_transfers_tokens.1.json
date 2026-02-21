@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 5,
+    "address": 6,
     "nonce": 0
   },
   "auth": [
@@ -52,21 +52,27 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
         {
           "function": {
             "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_min_topup",
+              "contract_address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+              "function_name": "approve",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 5000000
+                    "lo": 10000000
                   }
+                },
+                {
+                  "u32": 500
                 }
               ]
             }
@@ -75,6 +81,8 @@
         }
       ]
     ],
+    [],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
@@ -82,19 +90,25 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "deposit_funds",
+              "function_name": "create_subscription",
               "args": [
                 {
-                  "u32": 0
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 },
                 {
                   "i128": {
                     "hi": 0,
                     "lo": 10000000
                   }
+                },
+                {
+                  "u64": 3600
+                },
+                {
+                  "bool": false
                 }
               ]
             }
@@ -102,7 +116,10 @@
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    [],
+    [],
+    []
   ],
   "ledger": {
     "protocol_version": 22,
@@ -200,6 +217,85 @@
                     "storage": [
                       {
                         "key": {
+                          "u32": 0
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "amount"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 10000000
+                                }
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "interval_seconds"
+                              },
+                              "val": {
+                                "u64": 3600
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "last_payment_timestamp"
+                              },
+                              "val": {
+                                "u64": 0
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "merchant"
+                              },
+                              "val": {
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "prepaid_balance"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 10000000
+                                }
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "status"
+                              },
+                              "val": {
+                                "u32": 0
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "subscriber"
+                              },
+                              "val": {
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "usage_enabled"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "admin"
                         },
                         "val": {
@@ -213,8 +309,16 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 5000000
+                            "lo": 1000000
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "next_id"
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
@@ -271,7 +375,7 @@
       [
         {
           "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
             "key": {
               "ledger_key_nonce": {
                 "nonce": 1033654523790656264
@@ -286,7 +390,7 @@
             "data": {
               "contract_data": {
                 "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
                 "key": {
                   "ledger_key_nonce": {
                     "nonce": 1033654523790656264
@@ -341,6 +445,178 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "Allowance"
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "from"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "spender"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Allowance"
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "from"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "spender"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "durability": "temporary",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "live_until_ledger"
+                      },
+                      "val": {
+                        "u32": 500
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          501
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Balance"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Balance"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 10000000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "authorized"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "clawback"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF",
+            "key": {
+              "vec": [
+                {
                   "symbol": "Balance"
                 },
                 {
@@ -378,7 +654,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 100000000
+                          "lo": 90000000
                         }
                       }
                     },

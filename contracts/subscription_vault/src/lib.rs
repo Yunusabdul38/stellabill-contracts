@@ -1,13 +1,17 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol};
 
 #[contracterror]
 #[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     NotFound = 404,
     Unauthorized = 401,
     BelowMinimumTopup = 402,
+    InvalidAmount = 403,
+    InsufficientAllowance = 405,
+    TransferFailed = 406,
 }
 
 #[contracttype]
@@ -22,13 +26,21 @@ pub enum SubscriptionStatus {
 #[contracttype]
 #[derive(Clone, Debug)]
 pub struct Subscription {
+    /// Wallet that owns and funds this subscription.
     pub subscriber: Address,
+    /// Wallet that receives periodic charges.
     pub merchant: Address,
+    /// Billing amount charged per interval in token base units.
     pub amount: i128,
+    /// Length of each billing interval in seconds.
     pub interval_seconds: u64,
+    /// Ledger timestamp of the last successful payment lifecycle event.
     pub last_payment_timestamp: u64,
+    /// Current subscription status.
     pub status: SubscriptionStatus,
+    /// Subscriber funds currently held in the vault for this subscription.
     pub prepaid_balance: i128,
+    /// If true, usage-based add-ons may be charged by downstream logic.
     pub usage_enabled: bool,
 }
 
@@ -37,8 +49,11 @@ pub struct SubscriptionVault;
 
 #[contractimpl]
 impl SubscriptionVault {
-    /// Initialize the contract (e.g. set token and admin). Extend as needed.
+    /// Initialize the vault with token/admin config and minimum top-up threshold.
     pub fn init(env: Env, token: Address, admin: Address, min_topup: i128) -> Result<(), Error> {
+        if min_topup <= 0 {
+            return Err(Error::InvalidAmount);
+        }
         env.storage().instance().set(&Symbol::new(&env, "token"), &token);
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
         env.storage().instance().set(&Symbol::new(&env, "min_topup"), &min_topup);
@@ -51,6 +66,9 @@ impl SubscriptionVault {
     /// * `min_topup` - Minimum amount (in token base units) required for deposit_funds.
     ///                 Prevents inefficient micro-deposits. Typical range: 1-10 USDC (1_000000 - 10_000000 for 6 decimals).
     pub fn set_min_topup(env: Env, admin: Address, min_topup: i128) -> Result<(), Error> {
+        if min_topup <= 0 {
+            return Err(Error::InvalidAmount);
+        }
         admin.require_auth();
         let stored_admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).ok_or(Error::NotFound)?;
         if admin != stored_admin {
@@ -65,7 +83,10 @@ impl SubscriptionVault {
         env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)
     }
 
-    /// Create a new subscription. Caller deposits initial USDC; contract stores agreement.
+    /// Create a new subscription and pull initial prepaid funds into the vault.
+    ///
+    /// `amount` is both the recurring charge amount and the required initial prepaid deposit.
+    /// The subscriber must approve this contract as spender on the token contract before calling.
     pub fn create_subscription(
         env: Env,
         subscriber: Address,
@@ -75,15 +96,38 @@ impl SubscriptionVault {
         usage_enabled: bool,
     ) -> Result<u32, Error> {
         subscriber.require_auth();
-        // TODO: transfer initial deposit from subscriber to contract, then store subscription
+        if amount <= 0 || interval_seconds == 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let token_address: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "token"))
+            .ok_or(Error::NotFound)?;
+        let token_client = token::Client::new(&env, &token_address);
+        let contract_address = env.current_contract_address();
+
+        let allowance = token_client.allowance(&subscriber, &contract_address);
+        if allowance < amount {
+            return Err(Error::InsufficientAllowance);
+        }
+
+        let balance = token_client.balance(&subscriber);
+        if balance < amount {
+            return Err(Error::TransferFailed);
+        }
+
+        token_client.transfer_from(&contract_address, &subscriber, &contract_address, &amount);
+        let now = env.ledger().timestamp();
         let sub = Subscription {
             subscriber: subscriber.clone(),
             merchant,
             amount,
             interval_seconds,
-            last_payment_timestamp: env.ledger().timestamp(),
+            last_payment_timestamp: now,
             status: SubscriptionStatus::Active,
-            prepaid_balance: 0i128, // TODO: set from initial deposit
+            prepaid_balance: amount,
             usage_enabled,
         };
         let id = Self::_next_id(&env);
@@ -104,6 +148,9 @@ impl SubscriptionVault {
         amount: i128,
     ) -> Result<(), Error> {
         subscriber.require_auth();
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
         
         let min_topup: i128 = env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)?;
         if amount < min_topup {
