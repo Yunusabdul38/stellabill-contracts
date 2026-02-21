@@ -154,6 +154,96 @@ pub fn can_transition(from: &SubscriptionStatus, to: &SubscriptionStatus) -> boo
     validate_status_transition(from, to).is_ok()
 }
 
+/// Result of computing next charge information for a subscription.
+///
+/// Contains the estimated next charge timestamp and a flag indicating
+/// whether the charge is expected to occur based on the subscription status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NextChargeInfo {
+    /// Estimated timestamp for the next charge attempt.
+    /// For Active and InsufficientBalance states, this is `last_payment_timestamp + interval_seconds`.
+    /// For Paused and Cancelled states, this represents when the charge *would* occur if the
+    /// subscription were Active, but `is_charge_expected` will be `false`.
+    pub next_charge_timestamp: u64,
+    
+    /// Whether a charge is actually expected based on the subscription status.
+    /// - `true` for Active subscriptions (charge will be attempted)
+    /// - `true` for InsufficientBalance (charge will be retried after funding)
+    /// - `false` for Paused subscriptions (no charges until resumed)
+    /// - `false` for Cancelled subscriptions (terminal state, no future charges)
+    pub is_charge_expected: bool,
+}
+
+/// Computes the estimated next charge timestamp for a subscription.
+///
+/// This is a readonly helper that does not mutate contract state. It provides
+/// information for off-chain scheduling systems and UX displays.
+///
+/// # Logic
+///
+/// The next charge timestamp is calculated as:
+/// ```text
+/// next_charge_timestamp = last_payment_timestamp + interval_seconds
+/// ```
+///
+/// # Status Interpretation
+///
+/// | Status | next_charge_timestamp | is_charge_expected | Description |
+/// |--------|----------------------|-------------------|-------------|
+/// | Active | last_payment + interval | true | Normal billing cycle |
+/// | InsufficientBalance | last_payment + interval | true | Will retry after funding |
+/// | Paused | last_payment + interval | false | Suspended, no charges |
+/// | Cancelled | last_payment + interval | false | Terminal, no future charges |
+///
+/// # Arguments
+/// * `subscription` - The subscription to compute next charge information for
+///
+/// # Returns
+/// * [`NextChargeInfo`] containing the estimated timestamp and charge expectation flag
+///
+/// # Examples
+///
+/// ```
+/// // Active subscription: charge is expected
+/// let info = compute_next_charge_info(&active_subscription);
+/// assert!(info.is_charge_expected);
+/// assert_eq!(info.next_charge_timestamp, 
+///            active_subscription.last_payment_timestamp + active_subscription.interval_seconds);
+///
+/// // Paused subscription: charge is not expected
+/// let info = compute_next_charge_info(&paused_subscription);
+/// assert!(!info.is_charge_expected);
+///
+/// // Cancelled subscription: charge is not expected
+/// let info = compute_next_charge_info(&cancelled_subscription);
+/// assert!(!info.is_charge_expected);
+/// ```
+///
+/// # Usage
+///
+/// This helper is designed for:
+/// - Off-chain billing schedulers to determine when to invoke `charge_subscription()`
+/// - Frontend UX to display "Next billing date" to subscribers
+/// - Analytics and monitoring systems to track billing cycles
+/// - Detecting overdue subscriptions (current_time > next_charge_timestamp)
+pub fn compute_next_charge_info(subscription: &Subscription) -> NextChargeInfo {
+    let next_charge_timestamp = subscription.last_payment_timestamp
+        .saturating_add(subscription.interval_seconds);
+    
+    let is_charge_expected = match subscription.status {
+        SubscriptionStatus::Active => true,
+        SubscriptionStatus::InsufficientBalance => true, // Will be retried after funding
+        SubscriptionStatus::Paused => false,
+        SubscriptionStatus::Cancelled => false,
+    };
+    
+    NextChargeInfo {
+        next_charge_timestamp,
+        is_charge_expected,
+    }
+}
+
 #[contract]
 pub struct SubscriptionVault;
 
@@ -360,6 +450,46 @@ impl SubscriptionVault {
             .instance()
             .get(&subscription_id)
             .ok_or(Error::NotFound)
+    }
+
+    /// Get estimated next charge information for a subscription.
+    ///
+    /// Returns the estimated next charge timestamp and whether a charge is expected
+    /// based on the subscription's current status. This is a readonly view function
+    /// that does not mutate contract state.
+    ///
+    /// # Arguments
+    /// * `subscription_id` - The ID of the subscription to query
+    ///
+    /// # Returns
+    /// * `Ok(NextChargeInfo)` - Information about the next charge
+    /// * `Err(Error::NotFound)` - Subscription does not exist
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Get next charge info for subscription ID 0
+    /// let info = client.get_next_charge_info(&0);
+    /// 
+    /// if info.is_charge_expected {
+    ///     println!("Next charge at timestamp: {}", info.next_charge_timestamp);
+    /// } else {
+    ///     println!("No charge expected (paused or cancelled)");
+    /// }
+    /// ```
+    ///
+    /// # Usage Scenarios
+    ///
+    /// 1. **Billing Scheduler**: Determine when to invoke `charge_subscription()`
+    /// 2. **User Dashboard**: Display "Next billing date" to subscribers
+    /// 3. **Monitoring**: Detect overdue charges (current_time > next_charge_timestamp + grace_period)
+    /// 4. **Analytics**: Track billing cycles and payment patterns
+    pub fn get_next_charge_info(
+        env: Env,
+        subscription_id: u32,
+    ) -> Result<NextChargeInfo, Error> {
+        let subscription = Self::get_subscription(env, subscription_id)?;
+        Ok(compute_next_charge_info(&subscription))
     }
 
     fn _next_id(env: &Env) -> u32 {

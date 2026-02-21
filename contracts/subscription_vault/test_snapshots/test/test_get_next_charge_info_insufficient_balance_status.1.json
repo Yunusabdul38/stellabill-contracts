@@ -28,7 +28,7 @@
                   }
                 },
                 {
-                  "u64": 2592000
+                  "u64": 604800
                 },
                 {
                   "bool": false
@@ -47,7 +47,7 @@
   "ledger": {
     "protocol_version": 22,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 2000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -99,7 +99,7 @@
                                 "symbol": "interval_seconds"
                               },
                               "val": {
-                                "u64": 2592000
+                                "u64": 604800
                               }
                             },
                             {
@@ -107,7 +107,7 @@
                                 "symbol": "last_payment_timestamp"
                               },
                               "val": {
-                                "u64": 0
+                                "u64": 2000
                               }
                             },
                             {
