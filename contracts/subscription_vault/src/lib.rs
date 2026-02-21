@@ -8,6 +8,8 @@ pub enum Error {
     NotFound = 404,
     Unauthorized = 401,
     BelowMinimumTopup = 402,
+    /// Charge attempt was made after the subscription's expiration timestamp.
+    SubscriptionExpired = 410,
 }
 
 #[contracttype]
@@ -30,6 +32,9 @@ pub struct Subscription {
     pub status: SubscriptionStatus,
     pub prepaid_balance: i128,
     pub usage_enabled: bool,
+    /// Optional Unix timestamp (seconds) after which no more charges are allowed.
+    /// `None` means the subscription has no fixed end date and runs indefinitely.
+    pub expiration: Option<u64>,
 }
 
 #[contract]
@@ -46,7 +51,7 @@ impl SubscriptionVault {
     }
 
     /// Update the minimum top-up threshold. Only callable by admin.
-    /// 
+    ///
     /// # Arguments
     /// * `min_topup` - Minimum amount (in token base units) required for deposit_funds.
     ///                 Prevents inefficient micro-deposits. Typical range: 1-10 USDC (1_000000 - 10_000000 for 6 decimals).
@@ -66,6 +71,10 @@ impl SubscriptionVault {
     }
 
     /// Create a new subscription. Caller deposits initial USDC; contract stores agreement.
+    ///
+    /// # Arguments
+    /// * `expiration` - Optional Unix timestamp (seconds). If `Some(ts)`, charges are blocked
+    ///                  at or after `ts`. Pass `None` for an open-ended subscription.
     pub fn create_subscription(
         env: Env,
         subscriber: Address,
@@ -73,6 +82,7 @@ impl SubscriptionVault {
         amount: i128,
         interval_seconds: u64,
         usage_enabled: bool,
+        expiration: Option<u64>,
     ) -> Result<u32, Error> {
         subscriber.require_auth();
         // TODO: transfer initial deposit from subscriber to contract, then store subscription
@@ -85,6 +95,7 @@ impl SubscriptionVault {
             status: SubscriptionStatus::Active,
             prepaid_balance: 0i128, // TODO: set from initial deposit
             usage_enabled,
+            expiration,
         };
         let id = Self::_next_id(&env);
         env.storage().instance().set(&id, &sub);
@@ -92,7 +103,7 @@ impl SubscriptionVault {
     }
 
     /// Subscriber deposits more USDC into their vault for this subscription.
-    /// 
+    ///
     /// # Minimum top-up enforcement
     /// Rejects deposits below the configured minimum threshold to prevent inefficient
     /// micro-transactions that waste gas and complicate accounting. The minimum is set
@@ -104,21 +115,40 @@ impl SubscriptionVault {
         amount: i128,
     ) -> Result<(), Error> {
         subscriber.require_auth();
-        
+
         let min_topup: i128 = env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)?;
         if amount < min_topup {
             return Err(Error::BelowMinimumTopup);
         }
-        
+
         // TODO: transfer USDC from subscriber, increase prepaid_balance for subscription_id
         let _ = (env, subscription_id, amount);
         Ok(())
     }
 
     /// Billing engine (backend) calls this to charge one interval. Deducts from vault, pays merchant.
-    pub fn charge_subscription(_env: Env, _subscription_id: u32) -> Result<(), Error> {
+    ///
+    /// # Expiration enforcement
+    /// If the subscription has an `expiration` timestamp and the current ledger timestamp is
+    /// greater than or equal to that value, this function returns `Error::SubscriptionExpired`
+    /// and no funds are moved. When `expiration` is `None` there is no time limit.
+    pub fn charge_subscription(env: Env, subscription_id: u32) -> Result<(), Error> {
+        // Load the subscription from storage.
+        let sub: Subscription = env
+            .storage()
+            .instance()
+            .get(&subscription_id)
+            .ok_or(Error::NotFound)?;
+
+        // Expiration guard: reject charges at or after the expiration timestamp.
+        if let Some(exp_ts) = sub.expiration {
+            if env.ledger().timestamp() >= exp_ts {
+                return Err(Error::SubscriptionExpired);
+            }
+        }
+
         // TODO: require_caller admin or authorized billing service
-        // TODO: load subscription, check interval and balance, transfer to merchant, update last_payment_timestamp and prepaid_balance
+        // TODO: check interval and balance, transfer to merchant, update last_payment_timestamp and prepaid_balance
         Ok(())
     }
 
