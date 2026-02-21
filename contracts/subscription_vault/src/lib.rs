@@ -127,6 +127,11 @@ impl SubscriptionVault {
             .ok_or(Error::NotFound)?;
         sub.prepaid_balance = safe_add_balance(sub.prepaid_balance, amount)?;
         env.storage().instance().set(&subscription_id, &sub);
+
+        
+        // TODO: transfer USDC from subscriber, increase prepaid_balance for subscription_id
+        let _ = (env, subscription_id, amount);
+
         Ok(())
     }
 
