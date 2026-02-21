@@ -1805,3 +1805,439 @@ fn test_usage_enabled_with_recovery_operations() {
     assert_eq!(client.get_subscription(&id).usage_enabled, true);
     assert_eq!(client.get_subscription(&id).status, SubscriptionStatus::Active);
 }
+
+// =============================================================================
+// Admin Rotation and Access Control Tests
+// =============================================================================
+
+#[test]
+fn test_get_admin() {
+    let (_, client, _, admin) = setup_test_env();
+    
+    // Should return the admin set during initialization
+    let stored_admin = client.get_admin();
+    assert_eq!(stored_admin, admin);
+}
+
+#[test]
+fn test_rotate_admin_successful() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    
+    // Old admin should be able to rotate
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Verify admin has changed
+    assert_eq!(client.get_admin(), new_admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #401)")]
+fn test_rotate_admin_unauthorized() {
+    let (env, client, _, _) = setup_test_env();
+    
+    let non_admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    
+    // Non-admin should not be able to rotate
+    client.rotate_admin(&non_admin, &new_admin);
+}
+
+#[test]
+fn test_old_admin_loses_access_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Old admin should no longer be able to perform admin operations
+    let result = client.try_set_min_topup(&old_admin, &5_000000);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_new_admin_gains_access_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // New admin should now be able to set min topup
+    let new_min = 2_000000i128;
+    client.set_min_topup(&new_admin, &new_min);
+    
+    assert_eq!(client.get_min_topup(), new_min);
+}
+
+#[test]
+fn test_admin_rotation_affects_recovery_operations() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    
+    // Old admin can recover before rotation
+    let result = client.try_recover_stranded_funds(
+        &old_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::AccidentalTransfer
+    );
+    assert!(result.is_ok());
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Old admin can no longer recover
+    let result = client.try_recover_stranded_funds(
+        &old_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::AccidentalTransfer
+    );
+    assert!(result.is_err());
+    
+    // New admin can now recover
+    let result = client.try_recover_stranded_funds(
+        &new_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::DeprecatedFlow
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_multiple_admin_rotations() {
+    let (env, client, _, admin1) = setup_test_env();
+    
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let admin4 = Address::generate(&env);
+    
+    // First rotation: admin1 -> admin2
+    client.rotate_admin(&admin1, &admin2);
+    assert_eq!(client.get_admin(), admin2);
+    
+    // Second rotation: admin2 -> admin3
+    client.rotate_admin(&admin2, &admin3);
+    assert_eq!(client.get_admin(), admin3);
+    
+    // Third rotation: admin3 -> admin4
+    client.rotate_admin(&admin3, &admin4);
+    assert_eq!(client.get_admin(), admin4);
+    
+    // Only admin4 should have access now
+    client.set_min_topup(&admin4, &3_000000);
+    assert_eq!(client.get_min_topup(), 3_000000);
+    
+    // Previous admins should not have access
+    assert!(client.try_set_min_topup(&admin1, &1_000000).is_err());
+    assert!(client.try_set_min_topup(&admin2, &1_000000).is_err());
+    assert!(client.try_set_min_topup(&admin3, &1_000000).is_err());
+}
+
+#[test]
+fn test_admin_rotation_does_not_affect_subscriptions() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    // Create subscription before rotation
+    let subscriber = Address::generate(&env);
+    let merchant = Address::generate(&env);
+    let sub_id = client.create_subscription(
+        &subscriber,
+        &merchant,
+        &10_000_000i128,
+        &(30 * 24 * 60 * 60),
+        &false
+    );
+    
+    let subscription_before = client.get_subscription(&sub_id);
+    
+    // Rotate admin
+    let new_admin = Address::generate(&env);
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Subscription should be unchanged
+    let subscription_after = client.get_subscription(&sub_id);
+    assert_eq!(subscription_before.subscriber, subscription_after.subscriber);
+    assert_eq!(subscription_before.merchant, subscription_after.merchant);
+    assert_eq!(subscription_before.amount, subscription_after.amount);
+    assert_eq!(subscription_before.status, subscription_after.status);
+}
+
+#[test]
+fn test_set_min_topup_unauthorized_before_rotation() {
+    let (env, client, _, _) = setup_test_env();
+    
+    let non_admin = Address::generate(&env);
+    
+    // Non-admin cannot set min topup
+    let result = client.try_set_min_topup(&non_admin, &5_000000);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_set_min_topup_unauthorized_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Non-admin still cannot set min topup
+    let result = client.try_set_min_topup(&non_admin, &5_000000);
+    assert!(result.is_err());
+    
+    // Old admin also cannot
+    let result = client.try_set_min_topup(&old_admin, &5_000000);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_recover_stranded_funds_unauthorized_before_rotation() {
+    let (env, client, _, _) = setup_test_env();
+    
+    let non_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    
+    // Non-admin cannot recover funds
+    let result = client.try_recover_stranded_funds(
+        &non_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::AccidentalTransfer
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_recover_stranded_funds_unauthorized_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Non-admin cannot recover funds
+    let result = client.try_recover_stranded_funds(
+        &non_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::AccidentalTransfer
+    );
+    assert!(result.is_err());
+    
+    // Old admin also cannot
+    let result = client.try_recover_stranded_funds(
+        &old_admin,
+        &recipient,
+        &10_000000i128,
+        &RecoveryReason::AccidentalTransfer
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_all_admin_operations_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Test set_min_topup with new admin
+    client.set_min_topup(&new_admin, &3_000000);
+    assert_eq!(client.get_min_topup(), 3_000000);
+    
+    // Test recover_stranded_funds with new admin
+    let recipient = Address::generate(&env);
+    let result = client.try_recover_stranded_funds(
+        &new_admin,
+        &recipient,
+        &5_000000i128,
+        &RecoveryReason::DeprecatedFlow
+    );
+    assert!(result.is_ok());
+    
+    // Test another rotation with new admin
+    let admin3 = Address::generate(&env);
+    client.rotate_admin(&new_admin, &admin3);
+    assert_eq!(client.get_admin(), admin3);
+}
+
+#[test]
+fn test_admin_rotation_event_emission() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    let new_admin = Address::generate(&env);
+    
+    env.ledger().with_mut(|li| li.timestamp = 12345);
+    
+    // Rotate admin
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Verify event was emitted
+    let events = env.events().all();
+    assert!(events.len() > 0);
+}
+
+#[test]
+fn test_rotate_admin_to_same_address() {
+    let (_, client, _, admin) = setup_test_env();
+    
+    // Should be able to "rotate" to same address (idempotent)
+    client.rotate_admin(&admin, &admin);
+    
+    // Admin should still be the same
+    assert_eq!(client.get_admin(), admin);
+    
+    // Should still have admin access
+    client.set_min_topup(&admin, &2_000000);
+    assert_eq!(client.get_min_topup(), 2_000000);
+}
+
+#[test]
+fn test_admin_rotation_access_control_comprehensive() {
+    let (env, client, _, admin1) = setup_test_env();
+    
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    
+    // Phase 1: admin1 is in control
+    assert_eq!(client.get_admin(), admin1);
+    
+    // admin1 can perform admin operations
+    client.set_min_topup(&admin1, &2_000000);
+    assert_eq!(client.get_min_topup(), 2_000000);
+    
+    // admin2 cannot (not admin yet)
+    assert!(client.try_set_min_topup(&admin2, &3_000000).is_err());
+    
+    // non_admin cannot
+    assert!(client.try_set_min_topup(&non_admin, &3_000000).is_err());
+    
+    // Phase 2: Rotate to admin2
+    client.rotate_admin(&admin1, &admin2);
+    assert_eq!(client.get_admin(), admin2);
+    
+    // admin2 can now perform admin operations
+    client.set_min_topup(&admin2, &3_000000);
+    assert_eq!(client.get_min_topup(), 3_000000);
+    
+    // admin1 cannot anymore
+    assert!(client.try_set_min_topup(&admin1, &4_000000).is_err());
+    
+    // non_admin still cannot
+    assert!(client.try_set_min_topup(&non_admin, &4_000000).is_err());
+    
+    // Phase 3: Rotate to admin3
+    client.rotate_admin(&admin2, &admin3);
+    assert_eq!(client.get_admin(), admin3);
+    
+    // admin3 can now perform admin operations
+    client.set_min_topup(&admin3, &4_000000);
+    assert_eq!(client.get_min_topup(), 4_000000);
+    
+    // Previous admins cannot
+    assert!(client.try_set_min_topup(&admin1, &5_000000).is_err());
+    assert!(client.try_set_min_topup(&admin2, &5_000000).is_err());
+    
+    // non_admin still cannot
+    assert!(client.try_set_min_topup(&non_admin, &5_000000).is_err());
+}
+
+#[test]
+fn test_admin_rotation_with_subscriptions_active() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    // Create multiple subscriptions
+    let subscriber1 = Address::generate(&env);
+    let subscriber2 = Address::generate(&env);
+    let merchant = Address::generate(&env);
+    
+    let id1 = client.create_subscription(
+        &subscriber1,
+        &merchant,
+        &10_000_000i128,
+        &(30 * 24 * 60 * 60),
+        &false
+    );
+    
+    let id2 = client.create_subscription(
+        &subscriber2,
+        &merchant,
+        &5_000_000i128,
+        &(7 * 24 * 60 * 60),
+        &true
+    );
+    
+    // Perform state changes
+    client.pause_subscription(&id1, &subscriber1);
+    
+    // Rotate admin
+    let new_admin = Address::generate(&env);
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // Verify subscriptions still work correctly
+    assert_eq!(client.get_subscription(&id1).status, SubscriptionStatus::Paused);
+    assert_eq!(client.get_subscription(&id2).status, SubscriptionStatus::Active);
+    
+    // Subscribers can still manage their subscriptions
+    client.resume_subscription(&id1, &subscriber1);
+    assert_eq!(client.get_subscription(&id1).status, SubscriptionStatus::Active);
+    
+    client.cancel_subscription(&id2, &subscriber2);
+    assert_eq!(client.get_subscription(&id2).status, SubscriptionStatus::Cancelled);
+}
+
+#[test]
+fn test_admin_cannot_be_rotated_by_previous_admin() {
+    let (env, client, _, admin1) = setup_test_env();
+    
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    
+    // Rotate from admin1 to admin2
+    client.rotate_admin(&admin1, &admin2);
+    
+    // admin1 should not be able to rotate again
+    let result = client.try_rotate_admin(&admin1, &admin3);
+    assert!(result.is_err());
+    
+    // Admin should still be admin2
+    assert_eq!(client.get_admin(), admin2);
+}
+
+#[test]
+fn test_get_admin_before_and_after_rotation() {
+    let (env, client, _, old_admin) = setup_test_env();
+    
+    // Before rotation
+    assert_eq!(client.get_admin(), old_admin);
+    
+    let new_admin = Address::generate(&env);
+    
+    // Rotate
+    client.rotate_admin(&old_admin, &new_admin);
+    
+    // After rotation
+    assert_eq!(client.get_admin(), new_admin);
+    
+    // get_admin should always return current admin
+    let another_admin = Address::generate(&env);
+    client.rotate_admin(&new_admin, &another_admin);
+    assert_eq!(client.get_admin(), another_admin);
+}

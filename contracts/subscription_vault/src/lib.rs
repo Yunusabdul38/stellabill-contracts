@@ -320,6 +320,114 @@ impl SubscriptionVault {
         Ok(())
     }
 
+    /// Rotate admin to a new address. Only callable by current admin.
+    ///
+    /// This function allows the current admin to transfer administrative control
+    /// to a new address. This is critical for:
+    /// - Key rotation for security
+    /// - Transferring control to multi-sig wallets
+    /// - Organizational changes
+    /// - Upgrading to new governance mechanisms
+    ///
+    /// # Security Requirements
+    ///
+    /// - **Current Admin Authorization Required**: Only the current admin can rotate
+    /// - **Immediate Effect**: New admin takes effect immediately
+    /// - **No Grace Period**: Old admin loses access instantly
+    /// - **Irreversible**: Cannot be undone without new admin's cooperation
+    ///
+    /// # Safety Considerations
+    ///
+    /// ⚠️ **CRITICAL**: Ensure new admin address is correct before calling.
+    /// There is no recovery mechanism if you set an incorrect or inaccessible address.
+    ///
+    /// **Best Practices**:
+    /// - Verify new_admin address multiple times
+    /// - Test with a dry-run if possible
+    /// - Consider using a multi-sig wallet for new_admin
+    /// - Document the rotation in governance records
+    /// - Ensure new admin has tested access before old admin loses control
+    ///
+    /// # Arguments
+    ///
+    /// * `current_admin` - The current admin address (must match stored admin)
+    /// * `new_admin` - The new admin address (will replace current admin)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Admin rotation successful
+    /// * `Err(Error::Unauthorized)` - Caller is not current admin
+    /// * `Err(Error::NotFound)` - Admin not configured
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Rotate from old admin to new admin
+    /// client.rotate_admin(&current_admin, &new_admin);
+    ///
+    /// // Old admin can no longer perform admin operations
+    /// client.set_min_topup(&current_admin, &new_value); // Will fail
+    ///
+    /// // New admin can now perform admin operations
+    /// client.set_min_topup(&new_admin, &new_value); // Will succeed
+    /// ```
+    ///
+    /// # Events
+    ///
+    /// Emits an event with:
+    /// - Old admin address
+    /// - New admin address
+    /// - Timestamp of rotation
+    pub fn rotate_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        // 1. Require current admin authorization
+        current_admin.require_auth();
+
+        // 2. Verify caller is the stored admin
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .ok_or(Error::NotFound)?;
+        
+        if current_admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // 3. Update admin to new address
+        env.storage().instance().set(&Symbol::new(&env, "admin"), &new_admin);
+
+        // 4. Emit event for audit trail
+        env.events().publish(
+            (Symbol::new(&env, "admin_rotation"), current_admin.clone()),
+            (current_admin, new_admin, env.ledger().timestamp()),
+        );
+
+        Ok(())
+    }
+
+    /// Get the current admin address.
+    ///
+    /// This is a readonly function that returns the currently configured admin address.
+    /// Useful for:
+    /// - Verifying who has admin access
+    /// - UI displays
+    /// - Access control checks in external systems
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Address)` - The current admin address
+    /// * `Err(Error::NotFound)` - Admin not configured (contract not initialized)
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .ok_or(Error::NotFound)
+    }
+
     /// Get the current minimum top-up threshold.
     pub fn get_min_topup(env: Env) -> Result<i128, Error> {
         env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)
