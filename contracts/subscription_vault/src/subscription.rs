@@ -11,8 +11,9 @@ use soroban_sdk::{Address, Env, Symbol};
 
 pub fn next_id(env: &Env) -> u32 {
     let key = Symbol::new(env, "next_id");
-    let id: u32 = env.storage().instance().get(&key).unwrap_or(0);
-    env.storage().instance().set(&key, &(id + 1));
+    let storage = env.storage().instance();
+    let id: u32 = storage.get(&key).unwrap_or(0);
+    storage.set(&key, &(id + 1));
     id
 }
 
@@ -65,7 +66,8 @@ pub fn do_deposit_funds(
 pub fn do_charge_subscription(env: &Env, subscription_id: u32) -> Result<(), Error> {
     let admin = require_admin(env)?;
     admin.require_auth();
-    charge_one(env, subscription_id)
+    let now = env.ledger().timestamp();
+    charge_one(env, subscription_id, now)
 }
 
 pub fn do_cancel_subscription(

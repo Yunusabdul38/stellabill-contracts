@@ -7,14 +7,13 @@ use crate::state_machine::validate_status_transition;
 use crate::types::{Error, SubscriptionStatus};
 use soroban_sdk::Env;
 
-pub fn charge_one(env: &Env, subscription_id: u32) -> Result<(), Error> {
+pub fn charge_one(env: &Env, subscription_id: u32, now: u64) -> Result<(), Error> {
     let mut sub = get_subscription(env, subscription_id)?;
 
     if sub.status != SubscriptionStatus::Active {
         return Err(Error::NotActive);
     }
 
-    let now = env.ledger().timestamp();
     let next_allowed = sub
         .last_payment_timestamp
         .checked_add(sub.interval_seconds)
@@ -23,10 +22,12 @@ pub fn charge_one(env: &Env, subscription_id: u32) -> Result<(), Error> {
         return Err(Error::IntervalNotElapsed);
     }
 
+    let storage = env.storage().instance();
+
     if sub.prepaid_balance < sub.amount {
         validate_status_transition(&sub.status, &SubscriptionStatus::InsufficientBalance)?;
         sub.status = SubscriptionStatus::InsufficientBalance;
-        env.storage().instance().set(&subscription_id, &sub);
+        storage.set(&subscription_id, &sub);
         return Err(Error::InsufficientBalance);
     }
 
@@ -35,6 +36,6 @@ pub fn charge_one(env: &Env, subscription_id: u32) -> Result<(), Error> {
         .checked_sub(sub.amount)
         .ok_or(Error::Overflow)?;
     sub.last_payment_timestamp = now;
-    env.storage().instance().set(&subscription_id, &sub);
+    storage.set(&subscription_id, &sub);
     Ok(())
 }

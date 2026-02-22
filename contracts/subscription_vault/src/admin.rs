@@ -12,15 +12,10 @@ pub fn do_init(
     admin: Address,
     min_topup: i128,
 ) -> Result<(), Error> {
-    env.storage()
-        .instance()
-        .set(&Symbol::new(env, "token"), &token);
-    env.storage()
-        .instance()
-        .set(&Symbol::new(env, "admin"), &admin);
-    env.storage()
-        .instance()
-        .set(&Symbol::new(env, "min_topup"), &min_topup);
+    let instance = env.storage().instance();
+    instance.set(&Symbol::new(env, "token"), &token);
+    instance.set(&Symbol::new(env, "admin"), &admin);
+    instance.set(&Symbol::new(env, "min_topup"), &min_topup);
     Ok(())
 }
 
@@ -57,9 +52,10 @@ pub fn do_batch_charge(
     let auth_admin = require_admin(env)?;
     auth_admin.require_auth();
 
+    let now = env.ledger().timestamp();
     let mut results = Vec::new(env);
     for id in subscription_ids.iter() {
-        let r = charge_one(env, id);
+        let r = charge_one(env, id, now);
         let res = match &r {
             Ok(()) => BatchChargeResult {
                 success: true,
