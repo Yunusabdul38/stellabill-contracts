@@ -1043,3 +1043,409 @@ fn test_batch_charge_partial_failure() {
         Error::InsufficientBalance.to_code()
     );
 }
+
+// =============================================================================
+// Plan Template Tests
+// =============================================================================
+
+#[test]
+fn test_create_plan_template() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let amount = 1000i128;
+    let interval = 86400u64; // 1 day
+    let usage_enabled = false;
+
+    let plan_id = client.create_plan_template(&merchant, &amount, &interval, &usage_enabled);
+
+    let plan = client.get_plan_template(&plan_id);
+    assert_eq!(plan.merchant, merchant);
+    assert_eq!(plan.amount, amount);
+    assert_eq!(plan.interval_seconds, interval);
+    assert_eq!(plan.usage_enabled, usage_enabled);
+}
+
+#[test]
+fn test_create_multiple_plan_templates() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+
+    // Create "Basic Plan"
+    let plan_id_1 = client.create_plan_template(&merchant, &999i128, &2592000u64, &false);
+
+    // Create "Premium Plan"
+    let plan_id_2 = client.create_plan_template(&merchant, &2999i128, &2592000u64, &true);
+
+    assert_eq!(plan_id_1, 0);
+    assert_eq!(plan_id_2, 1);
+
+    let plan1 = client.get_plan_template(&plan_id_1);
+    let plan2 = client.get_plan_template(&plan_id_2);
+
+    assert_eq!(plan1.amount, 999i128);
+    assert_eq!(plan2.amount, 2999i128);
+    assert_eq!(plan1.usage_enabled, false);
+    assert_eq!(plan2.usage_enabled, true);
+}
+
+#[test]
+fn test_create_subscription_from_plan() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(T0);
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let amount = 1500i128;
+    let interval = 2592000u64; // 30 days
+    let usage_enabled = true;
+
+    // Create plan template
+    let plan_id = client.create_plan_template(&merchant, &amount, &interval, &usage_enabled);
+
+    // Create subscription from plan
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    // Verify subscription inherits plan parameters
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.subscriber, subscriber);
+    assert_eq!(sub.merchant, merchant);
+    assert_eq!(sub.amount, amount);
+    assert_eq!(sub.interval_seconds, interval);
+    assert_eq!(sub.usage_enabled, usage_enabled);
+    assert_eq!(sub.status, SubscriptionStatus::Active);
+    assert_eq!(sub.prepaid_balance, 0i128);
+    assert_eq!(sub.last_payment_timestamp, T0);
+}
+
+#[test]
+fn test_create_multiple_subscriptions_from_same_plan() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(T0);
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let plan_id = client.create_plan_template(&merchant, &999i128, &2592000u64, &false);
+
+    // Create subscriptions for different subscribers
+    let subscriber1 = Address::generate(&env);
+    let subscriber2 = Address::generate(&env);
+    let subscriber3 = Address::generate(&env);
+
+    let sub_id_1 = client.create_subscription_from_plan(&subscriber1, &plan_id);
+    let sub_id_2 = client.create_subscription_from_plan(&subscriber2, &plan_id);
+    let sub_id_3 = client.create_subscription_from_plan(&subscriber3, &plan_id);
+
+    // Verify all subscriptions have consistent parameters
+    let sub1 = client.get_subscription(&sub_id_1);
+    let sub2 = client.get_subscription(&sub_id_2);
+    let sub3 = client.get_subscription(&sub_id_3);
+
+    assert_eq!(sub1.amount, 999i128);
+    assert_eq!(sub2.amount, 999i128);
+    assert_eq!(sub3.amount, 999i128);
+
+    assert_eq!(sub1.merchant, merchant);
+    assert_eq!(sub2.merchant, merchant);
+    assert_eq!(sub3.merchant, merchant);
+
+    assert_eq!(sub1.subscriber, subscriber1);
+    assert_eq!(sub2.subscriber, subscriber2);
+    assert_eq!(sub3.subscriber, subscriber3);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #404)")]
+fn test_create_subscription_from_nonexistent_plan() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let subscriber = Address::generate(&env);
+    let nonexistent_plan_id = 999u32;
+
+    // Should panic with NotFound error
+    client.create_subscription_from_plan(&subscriber, &nonexistent_plan_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #404)")]
+fn test_get_nonexistent_plan_template() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    // Should panic with NotFound error
+    client.get_plan_template(&999u32);
+}
+
+#[test]
+fn test_plan_template_with_usage_enabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let plan_id = client.create_plan_template(&merchant, &5000i128, &2592000u64, &true);
+
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.usage_enabled, true);
+}
+
+#[test]
+fn test_plan_template_with_different_intervals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+
+    // Weekly plan
+    let weekly_plan = client.create_plan_template(&merchant, &250i128, &604800u64, &false);
+
+    // Monthly plan
+    let monthly_plan = client.create_plan_template(&merchant, &999i128, &2592000u64, &false);
+
+    // Yearly plan
+    let yearly_plan = client.create_plan_template(&merchant, &9999i128, &31536000u64, &false);
+
+    let plan1 = client.get_plan_template(&weekly_plan);
+    let plan2 = client.get_plan_template(&monthly_plan);
+    let plan3 = client.get_plan_template(&yearly_plan);
+
+    assert_eq!(plan1.interval_seconds, 604800u64);
+    assert_eq!(plan2.interval_seconds, 2592000u64);
+    assert_eq!(plan3.interval_seconds, 31536000u64);
+}
+
+#[test]
+fn test_subscription_from_plan_can_be_charged() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(T0);
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let amount = 1000i128;
+    let plan_id = client.create_plan_template(&merchant, &amount, &INTERVAL, &false);
+
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    // Deposit funds
+    client.deposit_funds(&sub_id, &subscriber, &10_000000i128);
+
+    // Advance time and charge
+    env.ledger().set_timestamp(T0 + INTERVAL);
+    client.charge_subscription(&sub_id);
+
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.prepaid_balance, 10_000000i128 - amount);
+}
+
+#[test]
+fn test_subscription_from_plan_lifecycle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(T0);
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let plan_id = client.create_plan_template(&merchant, &1000i128, &INTERVAL, &false);
+
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    // Test pause
+    client.pause_subscription(&sub_id, &subscriber);
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.status, SubscriptionStatus::Paused);
+
+    // Test resume
+    client.resume_subscription(&sub_id, &subscriber);
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.status, SubscriptionStatus::Active);
+
+    // Test cancel
+    client.cancel_subscription(&sub_id, &subscriber);
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.status, SubscriptionStatus::Cancelled);
+}
+
+#[test]
+fn test_plan_template_independent_subscription_ids() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let subscriber = Address::generate(&env);
+
+    // Create a direct subscription
+    let direct_sub_id =
+        client.create_subscription(&subscriber, &merchant, &500i128, &INTERVAL, &false);
+
+    // Create a plan template
+    let plan_id = client.create_plan_template(&merchant, &1000i128, &INTERVAL, &false);
+
+    // Create subscription from plan
+    let plan_sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    // Verify IDs are sequential and independent
+    assert_eq!(direct_sub_id, 0);
+    assert_eq!(plan_id, 0); // Plan IDs are separate
+    assert_eq!(plan_sub_id, 1); // Next subscription ID
+}
+
+#[test]
+fn test_direct_subscription_still_works() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(T0);
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+    let subscriber = Address::generate(&env);
+
+    // Create plan template
+    let _plan_id = client.create_plan_template(&merchant, &1000i128, &INTERVAL, &false);
+
+    // Direct subscription creation should still work
+    let sub_id = client.create_subscription(&subscriber, &merchant, &750i128, &INTERVAL, &true);
+
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.amount, 750i128);
+    assert_eq!(sub.usage_enabled, true);
+}
+
+#[test]
+fn test_plan_template_with_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+
+    // Free tier plan with zero amount
+    let plan_id = client.create_plan_template(&merchant, &0i128, &INTERVAL, &false);
+
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.amount, 0i128);
+}
+
+#[test]
+fn test_plan_template_with_large_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(SubscriptionVault, ());
+    let client = SubscriptionVaultClient::new(&env, &contract_id);
+
+    let token = Address::generate(&env);
+    let admin = Address::generate(&env);
+    client.init(&token, &admin, &1_000000i128);
+
+    let merchant = Address::generate(&env);
+
+    // Enterprise plan with large amount
+    let large_amount = 1_000_000_000i128;
+    let plan_id = client.create_plan_template(&merchant, &large_amount, &INTERVAL, &true);
+
+    let subscriber = Address::generate(&env);
+    let sub_id = client.create_subscription_from_plan(&subscriber, &plan_id);
+
+    let sub = client.get_subscription(&sub_id);
+    assert_eq!(sub.amount, large_amount);
+}

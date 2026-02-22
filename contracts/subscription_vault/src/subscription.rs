@@ -6,7 +6,7 @@ use crate::admin::require_admin;
 use crate::charge_core::charge_one;
 use crate::queries::get_subscription;
 use crate::state_machine::validate_status_transition;
-use crate::types::{Error, Subscription, SubscriptionStatus};
+use crate::types::{Error, PlanTemplate, Subscription, SubscriptionStatus};
 use soroban_sdk::{Address, Env, Symbol};
 
 pub fn next_id(env: &Env) -> u32 {
@@ -14,6 +14,18 @@ pub fn next_id(env: &Env) -> u32 {
     let id: u32 = env.storage().instance().get(&key).unwrap_or(0);
     env.storage().instance().set(&key, &(id + 1));
     id
+}
+
+pub fn next_plan_id(env: &Env) -> u32 {
+    let key = Symbol::new(env, "next_plan_id");
+    let id: u32 = env.storage().instance().get(&key).unwrap_or(0);
+    env.storage().instance().set(&key, &(id + 1));
+    id
+}
+
+pub fn get_plan_template(env: &Env, plan_template_id: u32) -> Result<PlanTemplate, Error> {
+    let key = (Symbol::new(env, "plan"), plan_template_id);
+    env.storage().instance().get(&key).ok_or(Error::NotFound)
 }
 
 pub fn do_create_subscription(
@@ -108,4 +120,52 @@ pub fn do_resume_subscription(
     sub.status = SubscriptionStatus::Active;
     env.storage().instance().set(&subscription_id, &sub);
     Ok(())
+}
+
+pub fn do_create_plan_template(
+    env: &Env,
+    merchant: Address,
+    amount: i128,
+    interval_seconds: u64,
+    usage_enabled: bool,
+) -> Result<u32, Error> {
+    merchant.require_auth();
+
+    let plan = PlanTemplate {
+        merchant,
+        amount,
+        interval_seconds,
+        usage_enabled,
+    };
+
+    let plan_id = next_plan_id(env);
+    let key = (Symbol::new(env, "plan"), plan_id);
+    env.storage().instance().set(&key, &plan);
+
+    Ok(plan_id)
+}
+
+pub fn do_create_subscription_from_plan(
+    env: &Env,
+    subscriber: Address,
+    plan_template_id: u32,
+) -> Result<u32, Error> {
+    subscriber.require_auth();
+
+    let plan = get_plan_template(env, plan_template_id)?;
+
+    let sub = Subscription {
+        subscriber: subscriber.clone(),
+        merchant: plan.merchant,
+        amount: plan.amount,
+        interval_seconds: plan.interval_seconds,
+        last_payment_timestamp: env.ledger().timestamp(),
+        status: SubscriptionStatus::Active,
+        prepaid_balance: 0i128,
+        usage_enabled: plan.usage_enabled,
+    };
+
+    let id = next_id(env);
+    env.storage().instance().set(&id, &sub);
+    Ok(id)
 }

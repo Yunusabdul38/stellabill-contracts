@@ -99,3 +99,27 @@ pub struct Subscription {
     pub prepaid_balance: i128,
     pub usage_enabled: bool,
 }
+
+/// Defines a reusable subscription plan template.
+///
+/// Plan templates allow merchants to define standard subscription offerings
+/// (e.g., "Basic Plan", "Premium Plan") with predefined parameters. Subscribers
+/// can then create subscriptions from these templates without manually specifying
+/// all parameters, ensuring consistency and reducing errors.
+///
+/// # Usage
+///
+/// - Use templates for standardized subscription offerings
+/// - Use direct subscription creation for custom one-off subscriptions
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PlanTemplate {
+    /// Merchant who owns this plan template.
+    pub merchant: Address,
+    /// Recurring charge amount per interval.
+    pub amount: i128,
+    /// Billing interval in seconds.
+    pub interval_seconds: u64,
+    /// Whether usage-based charging is enabled.
+    pub usage_enabled: bool,
+}
