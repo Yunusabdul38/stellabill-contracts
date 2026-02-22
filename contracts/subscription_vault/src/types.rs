@@ -5,6 +5,14 @@
 
 use soroban_sdk::{contracterror, contracttype, Address};
 
+/// Storage keys for secondary indices.
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    /// Maps a merchant address to its list of subscription IDs.
+    MerchantSubs(Address),
+}
+
 #[contracterror]
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -21,6 +29,14 @@ pub enum Error {
     Overflow = 403,
     /// Charge failed due to insufficient prepaid balance.
     InsufficientBalance = 1003,
+    /// Replay: charge for this billing period or idempotency key already processed.
+    Replay = 1004,
+    /// One-off or other operation used an invalid amount (e.g. non-positive).
+    InvalidAmount = 1005,
+    /// Recovery operation not allowed for this reason or context.
+    RecoveryNotAllowed = 1006,
+    /// Invalid recovery amount (e.g. zero or negative).
+    InvalidRecoveryAmount = 1007,
 }
 
 impl Error {
@@ -35,6 +51,10 @@ impl Error {
             Error::BelowMinimumTopup => 402,
             Error::Overflow => 403,
             Error::InsufficientBalance => 1003,
+            Error::Replay => 1004,
+            Error::InvalidAmount => 1005,
+            Error::RecoveryNotAllowed => 1006,
+            Error::InvalidRecoveryAmount => 1007,
         }
     }
 }
@@ -122,4 +142,158 @@ pub struct PlanTemplate {
     pub interval_seconds: u64,
     /// Whether usage-based charging is enabled.
     pub usage_enabled: bool,
+}
+
+/// Result of computing next charge information for a subscription.
+///
+/// Contains the estimated next charge timestamp and a flag indicating
+/// whether the charge is expected to occur based on the subscription status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NextChargeInfo {
+    /// Estimated timestamp for the next charge attempt.
+    /// For Active and InsufficientBalance states, this is `last_payment_timestamp + interval_seconds`.
+    /// For Paused and Cancelled states, this represents when the charge *would* occur if the
+    /// subscription were Active, but `is_charge_expected` will be `false`.
+    pub next_charge_timestamp: u64,
+
+    /// Whether a charge is actually expected based on the subscription status.
+    /// - `true` for Active subscriptions (charge will be attempted)
+    /// - `true` for InsufficientBalance (charge will be retried after funding)
+    /// - `false` for Paused subscriptions (no charges until resumed)
+    /// - `false` for Cancelled subscriptions (terminal state, no future charges)
+    pub is_charge_expected: bool,
+}
+
+/// Computes the estimated next charge timestamp for a subscription.
+///
+/// This is a readonly helper that does not mutate contract state. It provides
+/// information for off-chain scheduling systems and UX displays.
+pub fn compute_next_charge_info(subscription: &Subscription) -> NextChargeInfo {
+    let next_charge_timestamp = subscription
+        .last_payment_timestamp
+        .saturating_add(subscription.interval_seconds);
+
+    let is_charge_expected = match subscription.status {
+        SubscriptionStatus::Active => true,
+        SubscriptionStatus::InsufficientBalance => true, // Will be retried after funding
+        SubscriptionStatus::Paused => false,
+        SubscriptionStatus::Cancelled => false,
+    };
+
+    NextChargeInfo {
+        next_charge_timestamp,
+        is_charge_expected,
+    }
+}
+
+/// Represents the reason for stranded funds that can be recovered by admin.
+///
+/// This enum documents the specific, well-defined cases where funds may become
+/// stranded in the contract and require administrative intervention. Each case
+/// must be carefully audited before recovery is permitted.
+///
+/// # Security Note
+///
+/// Recovery is an exceptional operation that should only be used for truly
+/// stranded funds. All recovery operations are logged via events and should
+/// be subject to governance review.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecoveryReason {
+    /// Funds sent to contract address by mistake (no associated subscription).
+    /// This occurs when users accidentally send tokens directly to the contract.
+    AccidentalTransfer = 0,
+
+    /// Funds from deprecated contract flows or logic errors.
+    /// Used when contract upgrades or bugs leave funds in an inaccessible state.
+    DeprecatedFlow = 1,
+
+    /// Funds from cancelled subscriptions with unreachable addresses.
+    /// Subscribers may lose access to their withdrawal keys after cancellation.
+    UnreachableSubscriber = 2,
+}
+
+/// Event emitted when admin recovers stranded funds.
+///
+/// This event provides a complete audit trail for all recovery operations,
+/// including who initiated it, why, and how much was recovered.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RecoveryEvent {
+    /// The admin who authorized the recovery
+    pub admin: Address,
+    /// The destination address receiving the recovered funds
+    pub recipient: Address,
+    /// The amount of funds recovered
+    pub amount: i128,
+    /// The documented reason for recovery
+    pub reason: RecoveryReason,
+    /// Timestamp when recovery was executed
+    pub timestamp: u64,
+}
+
+// Event types
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionCreatedEvent {
+    pub subscription_id: u32,
+    pub subscriber: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub interval_seconds: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct FundsDepositedEvent {
+    pub subscription_id: u32,
+    pub subscriber: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionChargedEvent {
+    pub subscription_id: u32,
+    pub merchant: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionCancelledEvent {
+    pub subscription_id: u32,
+    pub authorizer: Address,
+    pub refund_amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionPausedEvent {
+    pub subscription_id: u32,
+    pub authorizer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionResumedEvent {
+    pub subscription_id: u32,
+    pub authorizer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MerchantWithdrawalEvent {
+    pub merchant: Address,
+    pub amount: i128,
+}
+
+/// Emitted when a merchant-initiated one-off charge is applied to a subscription.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct OneOffChargedEvent {
+    pub subscription_id: u32,
+    pub merchant: Address,
+    pub amount: i128,
 }

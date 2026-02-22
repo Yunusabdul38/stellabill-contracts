@@ -2,6 +2,8 @@
 //!
 //! **PRs that only change admin or batch behavior should edit this file only.**
 
+#![allow(dead_code)]
+
 use crate::charge_core::charge_one;
 use crate::types::{BatchChargeResult, Error};
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -54,7 +56,7 @@ pub fn do_batch_charge(
 
     let mut results = Vec::new(env);
     for id in subscription_ids.iter() {
-        let r = charge_one(env, id);
+        let r = charge_one(env, id, None);
         let res = match &r {
             Ok(()) => BatchChargeResult {
                 success: true,
