@@ -620,7 +620,13 @@ fn test_min_topup_exactly_at_threshold() {
     let min_topup = 5_000000i128; // 5 USDC
 
     client.init(&token, &admin, &min_topup);
-    let id = client.create_subscription(&subscriber, &merchant, &10_000000i128, &(30 * 24 * 60 * 60), &false);
+    let id = client.create_subscription(
+        &subscriber,
+        &merchant,
+        &10_000000i128,
+        &(30 * 24 * 60 * 60),
+        &false,
+    );
 
     let result = client.try_deposit_funds(&id, &subscriber, &min_topup);
     assert!(result.is_ok());
@@ -640,7 +646,13 @@ fn test_min_topup_above_threshold() {
     let min_topup = 5_000000i128; // 5 USDC
 
     client.init(&token, &admin, &min_topup);
-    let id = client.create_subscription(&subscriber, &merchant, &10_000000i128, &(30 * 24 * 60 * 60), &false);
+    let id = client.create_subscription(
+        &subscriber,
+        &merchant,
+        &10_000000i128,
+        &(30 * 24 * 60 * 60),
+        &false,
+    );
 
     let result = client.try_deposit_funds(&id, &subscriber, &10_000000);
     assert!(result.is_ok());

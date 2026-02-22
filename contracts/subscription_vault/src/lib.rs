@@ -188,11 +188,7 @@ impl SubscriptionVault {
     // ── Merchant ─────────────────────────────────────────────────────────
 
     /// Merchant withdraws accumulated USDC to their wallet.
-    pub fn withdraw_merchant_funds(
-        env: Env,
-        merchant: Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn withdraw_merchant_funds(env: Env, merchant: Address, amount: i128) -> Result<(), Error> {
         merchant::withdraw_merchant_funds(&env, merchant, amount)
     }
 

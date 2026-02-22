@@ -77,11 +77,7 @@ pub fn do_get_admin(env: &Env) -> Result<Address, Error> {
         .ok_or(Error::NotFound)
 }
 
-pub fn do_rotate_admin(
-    env: &Env,
-    current_admin: Address,
-    new_admin: Address,
-) -> Result<(), Error> {
+pub fn do_rotate_admin(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
 
     let stored_admin: Address = env
