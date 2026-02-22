@@ -8,10 +8,14 @@ mod state_machine;
 mod subscription;
 mod types;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Vec};
 
 pub use state_machine::{can_transition, get_allowed_transitions, validate_status_transition};
-pub use types::{BatchChargeResult, Error, Subscription, SubscriptionStatus};
+pub use types::{
+    BatchChargeResult, Error, FundsDepositedEvent, MerchantWithdrawalEvent, Subscription,
+    SubscriptionCancelledEvent, SubscriptionChargedEvent, SubscriptionCreatedEvent,
+    SubscriptionPausedEvent, SubscriptionResumedEvent, SubscriptionStatus,
+};
 
 #[contract]
 pub struct SubscriptionVault;
@@ -81,31 +85,28 @@ impl SubscriptionVault {
         subscription_id: u32,
         authorizer: Address,
     ) -> Result<(), Error> {
-
         authorizer.require_auth();
-        let mut sub: Subscription = env.storage()
+        let mut sub: Subscription = env
+            .storage()
             .instance()
             .get(&subscription_id)
             .ok_or(Error::NotFound)?;
-        
+
         // TODO: allow withdraw of prepaid_balance
         sub.status = SubscriptionStatus::Cancelled;
         let refund = sub.prepaid_balance;
         env.storage().instance().set(&subscription_id, &sub);
-        
+
         env.events().publish(
             (symbol_short!("cancelled"),),
             SubscriptionCancelledEvent {
                 subscription_id,
-                authorizer,
+                authorizer: authorizer.clone(),
                 refund_amount: refund,
             },
         );
-        
-        Ok(())
 
         subscription::do_cancel_subscription(&env, subscription_id, authorizer)
-
     }
 
     pub fn pause_subscription(
@@ -124,11 +125,7 @@ impl SubscriptionVault {
         subscription::do_resume_subscription(&env, subscription_id, authorizer)
     }
 
-    pub fn withdraw_merchant_funds(
-        env: Env,
-        merchant: Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn withdraw_merchant_funds(env: Env, merchant: Address, amount: i128) -> Result<(), Error> {
         merchant::withdraw_merchant_funds(&env, merchant, amount)
     }
 
