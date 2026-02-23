@@ -29,14 +29,18 @@ pub enum Error {
     Overflow = 403,
     /// Charge failed due to insufficient prepaid balance.
     InsufficientBalance = 1003,
-    /// Replay: charge for this billing period or idempotency key already processed.
-    Replay = 1004,
-    /// One-off or other operation used an invalid amount (e.g. non-positive).
-    InvalidAmount = 1005,
+    /// Usage-based charge attempted on a subscription with `usage_enabled = false`.
+    UsageNotEnabled = 1004,
+    /// Usage-based charge amount exceeds the available prepaid balance.
+    InsufficientPrepaidBalance = 1005,
+    /// The provided amount is zero or negative.
+    InvalidAmount = 1006,
+    /// Charge already processed for this billing period.
+    Replay = 1007,
+    /// Recovery amount is zero or negative.
+    InvalidRecoveryAmount = 1008,
     /// Recovery operation not allowed for this reason or context.
-    RecoveryNotAllowed = 1006,
-    /// Invalid recovery amount (e.g. zero or negative).
-    InvalidRecoveryAmount = 1007,
+    RecoveryNotAllowed = 1009,
 }
 
 impl Error {
@@ -51,10 +55,12 @@ impl Error {
             Error::BelowMinimumTopup => 402,
             Error::Overflow => 403,
             Error::InsufficientBalance => 1003,
-            Error::Replay => 1004,
-            Error::InvalidAmount => 1005,
-            Error::RecoveryNotAllowed => 1006,
-            Error::InvalidRecoveryAmount => 1007,
+            Error::UsageNotEnabled => 1004,
+            Error::InsufficientPrepaidBalance => 1005,
+            Error::InvalidAmount => 1006,
+            Error::Replay => 1007,
+            Error::InvalidRecoveryAmount => 1008,
+            Error::RecoveryNotAllowed => 1009,
         }
     }
 }
