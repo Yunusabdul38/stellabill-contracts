@@ -17,12 +17,12 @@ pub fn list_subscriptions_by_subscriber(
 
 ## Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `env` | `Env` | Contract environment reference |
-| `subscriber` | `Address` | The Stellar address of the subscriber to query |
-| `start_from_id` | `u32` | ID to start from (inclusive). Use `0` to start from the beginning, or the last ID + 1 from the previous page |
-| `limit` | `u32` | Maximum number of subscription IDs to return per page. Must be greater than 0 |
+| Parameter       | Type      | Description                                                                                                  |
+| --------------- | --------- | ------------------------------------------------------------------------------------------------------------ |
+| `env`           | `Env`     | Contract environment reference                                                                               |
+| `subscriber`    | `Address` | The Stellar address of the subscriber to query                                                               |
+| `start_from_id` | `u32`     | ID to start from (inclusive). Use `0` to start from the beginning, or the last ID + 1 from the previous page |
+| `limit`         | `u32`     | Maximum number of subscription IDs to return per page. Must be greater than 0                                |
 
 ## Returns
 
@@ -63,7 +63,7 @@ if !page.subscription_ids.is_empty() {
     println!("Found {} subscriptions", page.subscription_ids.len());
     for sub_id in page.subscription_ids {
         let sub = client.get_subscription(&sub_id);
-        println!("Subscription {}: {} per {} seconds", 
+        println!("Subscription {}: {} per {} seconds",
                  sub_id, sub.amount, sub.interval_seconds);
     }
 }
@@ -144,22 +144,30 @@ The function uses **cursor-based pagination** with inclusive lower bounds:
 ## Edge Cases
 
 ### Zero Subscriptions
+
 If a subscriber has no subscriptions, the response contains:
+
 - Empty `subscription_ids` vector
 - `has_next = false`
 
 ### Exact Multiple of Limit
+
 If subscriptions divide evenly into pages:
+
 - Last page returns exactly `limit` subscriptions
 - `has_next = false` (no more subscriptions after this)
 
 ### Start ID Beyond Range
+
 If `start_from_id` is greater than the highest subscription ID:
+
 - Returns empty `subscription_ids` vector
 - `has_next = false`
 
 ### Single Subscription Page
+
 When `limit=1`, you can iterate one subscription at a time:
+
 ```rust
 let mut start_id = 0u32;
 while let Ok(page) = client.list_subscriptions_by_subscriber(&subscriber, &start_id, &1u32) {
@@ -175,18 +183,21 @@ while let Ok(page) = client.list_subscriptions_by_subscriber(&subscriber, &start
 This function is optimized for off-chain indexing and UI consumption:
 
 ### For Indexers
+
 1. Store the last retrieved `start_from_id` value
 2. Use `start_from_id + 1` on next sync to avoid duplicate processing
 3. Batch multiple pagination requests for efficiency
 4. Cache results with TTL matching subscription state change frequency
 
 ### For UI Applications
+
 1. Display first page with reasonable `limit` (10-50)
 2. Load next page on demand as user scrolls
 3. Show "has_next" indicator to inform user of more data
 4. Optionally cache pages locally with appropriate invalidation strategy
 
 ### For Analytics
+
 1. Full pagination scan is feasible for reasonable subscriber counts
 2. Use small limit (e.g., 5) in batched requests if scanning must avoid blocking
 3. ID-based ordering enables reliable incremental updates
@@ -207,6 +218,7 @@ The feature includes comprehensive test coverage for:
 - Multiple merchants per subscriber
 
 All tests verify:
+
 - Correct result counts
 - Accurate ID matching
 - has_next flag accuracy
