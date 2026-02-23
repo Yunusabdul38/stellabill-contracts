@@ -1,13 +1,12 @@
-//! Subscription lifecycle: create, deposit, charge, cancel, pause, resume.
+//! Subscription lifecycle: create, deposit.
 //!
 //! **PRs that only change subscription lifecycle or billing should edit this file only.**
 
-use crate::admin::require_admin;
-use crate::charge_core::charge_one;
 use crate::queries::get_subscription;
 use crate::safe_math::{safe_add_balance, validate_non_negative};
-use crate::types::{Error, OneOffChargedEvent, Subscription, SubscriptionStatus};
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use crate::state_machine::validate_status_transition;
+use crate::types::{DataKey, Error, Subscription, SubscriptionStatus};
+use soroban_sdk::{Address, Env, Symbol, Vec};
 
 pub fn next_id(env: &Env) -> u32 {
     let key = Symbol::new(env, "next_id");
@@ -28,7 +27,7 @@ pub fn do_create_subscription(
     validate_non_negative(amount)?;
     let sub = Subscription {
         subscriber: subscriber.clone(),
-        merchant,
+        merchant: merchant.clone(),
         amount,
         interval_seconds,
         last_payment_timestamp: env.ledger().timestamp(),
@@ -38,6 +37,13 @@ pub fn do_create_subscription(
     };
     let id = next_id(env);
     env.storage().instance().set(&id, &sub);
+
+    // Maintain merchant → subscription-ID index
+    let key = DataKey::MerchantSubs(sub.merchant.clone());
+    let mut ids: Vec<u32> = env.storage().instance().get(&key).unwrap_or(Vec::new(env));
+    ids.push_back(id);
+    env.storage().instance().set(&key, &ids);
+
     Ok(id)
 }
 
@@ -58,67 +64,55 @@ pub fn do_deposit_funds(
     let mut sub = get_subscription(env, subscription_id)?;
     sub.prepaid_balance = safe_add_balance(sub.prepaid_balance, amount)?;
     env.storage().instance().set(&subscription_id, &sub);
+    env.events().publish(
+        (Symbol::new(env, "deposited"), subscription_id),
+        (subscriber, amount, sub.prepaid_balance),
+    );
     Ok(())
 }
 
-/// Charges one subscription for the current billing interval.
-///
-/// # Idempotency
-///
-/// Pass `idempotency_key` (e.g. from your billing engine) to make retries safe: the first call
-/// with a given key performs the charge; repeated calls with the same key return `Ok(())` without
-/// double-debiting. If `None`, only period-based replay protection applies (one charge per
-/// billing period per subscription).
-pub fn do_charge_subscription(
+pub fn do_cancel_subscription(
     env: &Env,
     subscription_id: u32,
-    idempotency_key: Option<soroban_sdk::BytesN<32>>,
+    authorizer: Address,
 ) -> Result<(), Error> {
-    let admin = require_admin(env)?;
-    admin.require_auth();
-    charge_one(env, subscription_id, idempotency_key)
-}
-
-/// Merchant-initiated one-off charge: debits `amount` from the subscription's prepaid balance.
-/// Requires merchant auth; the subscription's merchant must match the caller. Subscription must be
-/// Active or Paused. Amount must be positive and not exceed prepaid_balance.
-pub fn do_charge_one_off(
-    env: &Env,
-    subscription_id: u32,
-    merchant: Address,
-    amount: i128,
-) -> Result<(), Error> {
-    merchant.require_auth();
+    authorizer.require_auth();
 
     let mut sub = get_subscription(env, subscription_id)?;
-    if sub.merchant != merchant {
-        return Err(Error::Unauthorized);
-    }
-    match sub.status {
-        SubscriptionStatus::Active | SubscriptionStatus::Paused => {}
-        _ => return Err(Error::NotActive),
-    }
-    if amount <= 0 {
-        return Err(Error::InvalidAmount);
-    }
-    if sub.prepaid_balance < amount {
-        return Err(Error::InsufficientBalance);
-    }
+    validate_status_transition(&sub.status, &SubscriptionStatus::Cancelled)?;
+    sub.status = SubscriptionStatus::Cancelled;
 
-    sub.prepaid_balance = sub
-        .prepaid_balance
-        .checked_sub(amount)
-        .ok_or(Error::Overflow)?;
+    // TODO: allow withdraw of prepaid_balance
     env.storage().instance().set(&subscription_id, &sub);
+    Ok(())
+}
 
-    env.events().publish(
-        (symbol_short!("oneoff_ch"),),
-        OneOffChargedEvent {
-            subscription_id,
-            merchant,
-            amount,
-        },
-    );
+pub fn do_pause_subscription(
+    env: &Env,
+    subscription_id: u32,
+    authorizer: Address,
+) -> Result<(), Error> {
+    authorizer.require_auth();
 
+    let mut sub = get_subscription(env, subscription_id)?;
+    validate_status_transition(&sub.status, &SubscriptionStatus::Paused)?;
+    sub.status = SubscriptionStatus::Paused;
+
+    env.storage().instance().set(&subscription_id, &sub);
+    Ok(())
+}
+
+pub fn do_resume_subscription(
+    env: &Env,
+    subscription_id: u32,
+    authorizer: Address,
+) -> Result<(), Error> {
+    authorizer.require_auth();
+
+    let mut sub = get_subscription(env, subscription_id)?;
+    validate_status_transition(&sub.status, &SubscriptionStatus::Active)?;
+    sub.status = SubscriptionStatus::Active;
+
+    env.storage().instance().set(&subscription_id, &sub);
     Ok(())
 }
