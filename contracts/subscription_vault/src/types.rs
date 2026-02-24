@@ -57,7 +57,7 @@ pub enum Error {
     /// The requested resource (e.g. subscription) was not found in storage.
     NotFound = 404,
 
-    // --- Invalid Input (400, 405-408) ---
+    // --- Invalid Input (400, 405-409) ---
     /// The requested state transition is not allowed by the state machine.
     /// The requested state transition is not allowed by the state machine.
     /// E.g., attempting to resume a 'Cancelled' subscription.
@@ -72,6 +72,8 @@ pub enum Error {
     UsageNotEnabled = 407,
     /// Invalid parameters provided to the function (e.g., a pagination limit of 0).
     InvalidInput = 408,
+    /// Export limit exceeds allowed maximum.
+    InvalidExportLimit = 409,
 
     // --- Insufficient Funds (10xx) ---
     /// Subscription failed due to insufficient prepaid balance in the vault for a recurring charge.
@@ -310,6 +312,44 @@ pub struct RecoveryEvent {
     /// The documented reason for recovery
     pub reason: RecoveryReason,
     /// Timestamp when recovery was executed
+    pub timestamp: u64,
+}
+
+/// Exported snapshot of contract-level configuration for migration tooling.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ContractSnapshot {
+    pub admin: Address,
+    pub token: Address,
+    pub min_topup: i128,
+    pub next_id: u32,
+    pub storage_version: u32,
+    pub timestamp: u64,
+}
+
+/// Exported summary of a subscription for migration tooling.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionSummary {
+    pub subscription_id: u32,
+    pub subscriber: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub interval_seconds: u64,
+    pub last_payment_timestamp: u64,
+    pub status: SubscriptionStatus,
+    pub prepaid_balance: i128,
+    pub usage_enabled: bool,
+}
+
+/// Event emitted when a migration export is requested.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MigrationExportEvent {
+    pub admin: Address,
+    pub start_id: u32,
+    pub limit: u32,
+    pub exported: u32,
     pub timestamp: u64,
 }
 
