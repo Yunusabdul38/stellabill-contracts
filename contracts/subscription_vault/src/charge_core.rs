@@ -13,19 +13,8 @@
 
 use crate::queries::get_subscription;
 use crate::state_machine::validate_status_transition;
-use crate::types::{Error, SubscriptionChargedEvent, SubscriptionStatus};
-use soroban_sdk::{symbol_short, Env, Symbol};
-
-const KEY_CHARGED_PERIOD: Symbol = symbol_short!("cp");
-const KEY_IDEM: Symbol = symbol_short!("idem");
-
-fn charged_period_key(subscription_id: u32) -> (Symbol, u32) {
-    (KEY_CHARGED_PERIOD, subscription_id)
-}
-
-fn idem_key(subscription_id: u32) -> (Symbol, u32) {
-    (KEY_IDEM, subscription_id)
-}
+use crate::types::{DataKey, Error, SubscriptionChargedEvent, SubscriptionStatus};
+use soroban_sdk::{symbol_short, Env};
 
 /// Performs a single interval-based charge with optional replay protection.
 ///
@@ -53,12 +42,11 @@ pub fn charge_one(
     let now = env.ledger().timestamp();
     let period_index = now / sub.interval_seconds;
 
-    // Idempotent return: same idempotency key already processed for this subscription
     if let Some(ref k) = idempotency_key {
         if let Some(stored) = env
             .storage()
             .instance()
-            .get::<_, soroban_sdk::BytesN<32>>(&idem_key(subscription_id))
+            .get::<_, soroban_sdk::BytesN<32>>(&DataKey::IdemKey(subscription_id))
         {
             if stored == *k {
                 return Ok(());
@@ -66,11 +54,10 @@ pub fn charge_one(
         }
     }
 
-    // Replay: already charged for this billing period (derived key)
     if let Some(stored_period) = env
         .storage()
         .instance()
-        .get::<_, u64>(&charged_period_key(subscription_id))
+        .get::<_, u64>(&DataKey::ChargedPeriod(subscription_id))
     {
         if period_index <= stored_period {
             return Err(Error::Replay);
@@ -88,7 +75,7 @@ pub fn charge_one(
     if sub.prepaid_balance < sub.amount {
         validate_status_transition(&sub.status, &SubscriptionStatus::InsufficientBalance)?;
         sub.status = SubscriptionStatus::InsufficientBalance;
-        env.storage().instance().set(&subscription_id, &sub);
+        env.storage().instance().set(&DataKey::Sub(subscription_id), &sub);
         return Err(Error::InsufficientBalance);
     }
 
@@ -97,14 +84,13 @@ pub fn charge_one(
         .checked_sub(sub.amount)
         .ok_or(Error::Overflow)?;
     sub.last_payment_timestamp = now;
-    env.storage().instance().set(&subscription_id, &sub);
+    env.storage().instance().set(&DataKey::Sub(subscription_id), &sub);
 
-    // Record charged period and optional idempotency key (bounded storage)
     env.storage()
         .instance()
-        .set(&charged_period_key(subscription_id), &period_index);
+        .set(&DataKey::ChargedPeriod(subscription_id), &period_index);
     if let Some(k) = idempotency_key {
-        env.storage().instance().set(&idem_key(subscription_id), &k);
+        env.storage().instance().set(&DataKey::IdemKey(subscription_id), &k);
     }
 
     env.events().publish(
@@ -155,13 +141,11 @@ pub fn charge_usage_one(env: &Env, subscription_id: u32, usage_amount: i128) -> 
         .checked_sub(usage_amount)
         .ok_or(Error::Overflow)?;
 
-    // If the vault is now empty, transition to InsufficientBalance so no
-    // further charges (interval or usage) can proceed until top-up.
     if sub.prepaid_balance == 0 {
         validate_status_transition(&sub.status, &SubscriptionStatus::InsufficientBalance)?;
         sub.status = SubscriptionStatus::InsufficientBalance;
     }
 
-    env.storage().instance().set(&subscription_id, &sub);
+    env.storage().instance().set(&DataKey::Sub(subscription_id), &sub);
     Ok(())
 }
