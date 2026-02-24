@@ -1,5 +1,5 @@
 use crate::{Error, Subscription, SubscriptionStatus, SubscriptionVault, SubscriptionVaultClient};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -35,11 +35,11 @@ fn test_subscription_struct() {
     let sub = Subscription {
         subscriber: Address::generate(&env),
         merchant: Address::generate(&env),
-        amount: 10_000_0000, // 10 USDC (6 decimals)
+        amount: 100_000_000,                 // 10 USDC (6 decimals)
         interval_seconds: 30 * 24 * 60 * 60, // 30 days
         last_payment_timestamp: 0,
         status: SubscriptionStatus::Active,
-        prepaid_balance: 50_000_0000,
+        prepaid_balance: 500_000_000,
         usage_enabled: false,
         expiration: None, // no fixed end date
     };
@@ -54,11 +54,11 @@ fn test_subscription_struct_with_expiration() {
     let sub = Subscription {
         subscriber: Address::generate(&env),
         merchant: Address::generate(&env),
-        amount: 10_000_0000,
+        amount: 100_000_000,
         interval_seconds: 30 * 24 * 60 * 60,
         last_payment_timestamp: 0,
         status: SubscriptionStatus::Active,
-        prepaid_balance: 50_000_0000,
+        prepaid_balance: 500_000_000,
         usage_enabled: false,
         expiration: Some(exp_ts),
     };

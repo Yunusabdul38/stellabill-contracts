@@ -3,6 +3,7 @@
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
 
 #[contracterror]
+#[derive(Debug)]
 #[repr(u32)]
 pub enum Error {
     NotFound = 404,
@@ -44,9 +45,15 @@ pub struct SubscriptionVault;
 impl SubscriptionVault {
     /// Initialize the contract (e.g. set token and admin). Extend as needed.
     pub fn init(env: Env, token: Address, admin: Address, min_topup: i128) -> Result<(), Error> {
-        env.storage().instance().set(&Symbol::new(&env, "token"), &token);
-        env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
-        env.storage().instance().set(&Symbol::new(&env, "min_topup"), &min_topup);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "token"), &token);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "admin"), &admin);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "min_topup"), &min_topup);
         Ok(())
     }
 
@@ -57,17 +64,26 @@ impl SubscriptionVault {
     ///                 Prevents inefficient micro-deposits. Typical range: 1-10 USDC (1_000000 - 10_000000 for 6 decimals).
     pub fn set_min_topup(env: Env, admin: Address, min_topup: i128) -> Result<(), Error> {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).ok_or(Error::NotFound)?;
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .ok_or(Error::NotFound)?;
         if admin != stored_admin {
             return Err(Error::Unauthorized);
         }
-        env.storage().instance().set(&Symbol::new(&env, "min_topup"), &min_topup);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "min_topup"), &min_topup);
         Ok(())
     }
 
     /// Get the current minimum top-up threshold.
     pub fn get_min_topup(env: Env) -> Result<i128, Error> {
-        env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "min_topup"))
+            .ok_or(Error::NotFound)
     }
 
     /// Create a new subscription. Caller deposits initial USDC; contract stores agreement.
@@ -116,7 +132,11 @@ impl SubscriptionVault {
     ) -> Result<(), Error> {
         subscriber.require_auth();
 
-        let min_topup: i128 = env.storage().instance().get(&Symbol::new(&env, "min_topup")).ok_or(Error::NotFound)?;
+        let min_topup: i128 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "min_topup"))
+            .ok_or(Error::NotFound)?;
         if amount < min_topup {
             return Err(Error::BelowMinimumTopup);
         }
