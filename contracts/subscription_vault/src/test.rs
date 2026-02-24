@@ -613,13 +613,18 @@ fn test_min_topup_exactly_at_threshold() {
     let contract_id = env.register(SubscriptionVault, ());
     let client = SubscriptionVaultClient::new(&env, &contract_id);
 
-    let token = Address::generate(&env);
     let admin = Address::generate(&env);
+    let token_addr = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
     let subscriber = Address::generate(&env);
     let merchant = Address::generate(&env);
     let min_topup = 5_000000i128; // 5 USDC
 
-    client.init(&token, &7, &admin, &min_topup, &43200);
+    client.init(&token_addr, &7, &admin, &min_topup, &43200);
+    token_admin.mint(&subscriber, &min_topup);
+
     let id = client.create_subscription(
         &subscriber,
         &merchant,
@@ -639,22 +644,28 @@ fn test_min_topup_above_threshold() {
     let contract_id = env.register(SubscriptionVault, ());
     let client = SubscriptionVaultClient::new(&env, &contract_id);
 
-    let token = Address::generate(&env);
     let admin = Address::generate(&env);
+    let token_addr = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
     let subscriber = Address::generate(&env);
     let merchant = Address::generate(&env);
     let min_topup = 5_000000i128; // 5 USDC
+    let deposit_amount = 10_000000i128;
 
-    client.init(&token, &7, &admin, &min_topup, &43200);
+    client.init(&token_addr, &7, &admin, &min_topup, &43200);
+    token_admin.mint(&subscriber, &deposit_amount);
+
     let id = client.create_subscription(
         &subscriber,
         &merchant,
-        &10_000000i128,
+        &deposit_amount,
         &(30 * 24 * 60 * 60),
         &false,
     );
 
-    let result = client.try_deposit_funds(&id, &subscriber, &10_000000);
+    let result = client.try_deposit_funds(&id, &subscriber, &deposit_amount);
     assert!(result.is_ok());
 }
 
