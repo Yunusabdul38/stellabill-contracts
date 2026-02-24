@@ -860,11 +860,8 @@ fn test_create_subscription_validates_amount() {
     assert_eq!(validate_non_negative(10_000_000i128), Ok(()));
 }
 
-<<<<<<< HEAD
 // ─── Merchant view helper tests ───────────────────────────────────────────────
 
-=======
->>>>>>> upstream/main
 #[test]
 fn test_cancel_subscription_by_subscriber() {
     let env = Env::default();
@@ -917,7 +914,6 @@ fn test_min_topup_below_threshold() {
 
     let result = client.try_deposit_funds(&sub_id, &subscriber, &4_999999);
 
-=======
     let sub_id = client.create_subscription(
         &subscriber,
         &merchant,
@@ -927,7 +923,6 @@ fn test_min_topup_below_threshold() {
     );
 
     let result = client.try_deposit_funds(&sub_id, &subscriber, &4_999999);
->>>>>>> upstream/main
     assert!(result.is_err());
 }
 #[test]
@@ -2745,6 +2740,7 @@ fn test_batch_charge_result_indices_match_input_order() {
     assert!(results.get(1).unwrap().success); // id0
     assert!(!results.get(2).unwrap().success); // id1
 }
+
 #[test]
 fn test_recover_stranded_funds_idempotency() {
     let (env, client, _, admin) = setup_test_env();
