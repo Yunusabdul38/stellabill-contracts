@@ -3,6 +3,7 @@
 //! **PRs that only change subscription lifecycle or billing should edit this file only.**
 
 use crate::queries::get_subscription;
+use crate::safe_math::safe_add_balance;
 use crate::state_machine::validate_status_transition;
 use crate::types::{DataKey, Error, Subscription, SubscriptionStatus};
 use soroban_sdk::{Address, Env, Symbol, Vec};
@@ -58,10 +59,7 @@ pub fn do_deposit_funds(
     }
 
     let mut sub = get_subscription(env, subscription_id)?;
-    sub.prepaid_balance = sub
-        .prepaid_balance
-        .checked_add(amount)
-        .ok_or(Error::Overflow)?;
+    sub.prepaid_balance = safe_add_balance(sub.prepaid_balance, amount)?;
 
     let token_addr: Address = env
         .storage()

@@ -175,22 +175,19 @@ pub fn list_subscriptions_by_subscriber(
     let mut last_found_id = start_from_id;
 
     for id in start_from_id..next_id {
-        match env
+        if let Some(sub) = env
             .storage()
             .instance()
             .get::<DataKey, Subscription>(&DataKey::Sub(id))
         {
-            Some(sub) => {
-                if sub.subscriber == subscriber {
-                    subscription_ids.push_back(id);
-                    count += 1;
-                    last_found_id = id;
-                    if count >= limit {
-                        break;
-                    }
+            if sub.subscriber == subscriber {
+                subscription_ids.push_back(id);
+                count += 1;
+                last_found_id = id;
+                if count >= limit {
+                    break;
                 }
             }
-            None => {}
         }
     }
 

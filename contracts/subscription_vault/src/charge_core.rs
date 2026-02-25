@@ -12,6 +12,7 @@
 //!   debiting again (idempotent success). Storage stays bounded (one key and one period per sub).
 
 use crate::queries::get_subscription;
+use crate::safe_math::safe_sub_balance;
 use crate::state_machine::validate_status_transition;
 use crate::types::{DataKey, Error, SubscriptionChargedEvent, SubscriptionStatus};
 use soroban_sdk::{symbol_short, Env};
@@ -81,10 +82,7 @@ pub fn charge_one(
         return Err(Error::InsufficientBalance);
     }
 
-    sub.prepaid_balance = sub
-        .prepaid_balance
-        .checked_sub(sub.amount)
-        .ok_or(Error::Overflow)?;
+    sub.prepaid_balance = safe_sub_balance(sub.prepaid_balance, sub.amount)?;
     sub.last_payment_timestamp = now;
     env.storage()
         .instance()
@@ -142,10 +140,7 @@ pub fn charge_usage_one(env: &Env, subscription_id: u32, usage_amount: i128) -> 
         return Err(Error::InsufficientPrepaidBalance);
     }
 
-    sub.prepaid_balance = sub
-        .prepaid_balance
-        .checked_sub(usage_amount)
-        .ok_or(Error::Overflow)?;
+    sub.prepaid_balance = safe_sub_balance(sub.prepaid_balance, usage_amount)?;
 
     if sub.prepaid_balance == 0 {
         validate_status_transition(&sub.status, &SubscriptionStatus::InsufficientBalance)?;
