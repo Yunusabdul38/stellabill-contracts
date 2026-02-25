@@ -16,7 +16,19 @@ pub use state_machine::{can_transition, get_allowed_transitions, validate_status
 pub use types::*;
 
 pub use queries::compute_next_charge_info;
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
+
+const STORAGE_VERSION: u32 = 1;
+const MAX_EXPORT_LIMIT: u32 = 100;
+
+fn require_admin_auth(env: &Env, admin: &Address) -> Result<(), Error> {
+    admin.require_auth();
+    let stored_admin = admin::require_admin(env)?;
+    if admin != &stored_admin {
+        return Err(Error::Unauthorized);
+    }
+    Ok(())
+}
 
 // ── Contract ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +101,132 @@ impl SubscriptionVault {
         subscription_ids: Vec<u32>,
     ) -> Result<Vec<BatchChargeResult>, Error> {
         admin::do_batch_charge(&env, &subscription_ids)
+    }
+
+    /// **ADMIN ONLY**: Export contract-level configuration for migration tooling.
+    ///
+    /// Read-only snapshot intended for carefully managed upgrades.
+    pub fn export_contract_snapshot(env: Env, admin: Address) -> Result<ContractSnapshot, Error> {
+        require_admin_auth(&env, &admin)?;
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "token"))
+            .ok_or(Error::NotFound)?;
+        let min_topup: i128 = admin::get_min_topup(&env)?;
+        let next_id: u32 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "next_id"))
+            .unwrap_or(0);
+
+        env.events().publish(
+            (Symbol::new(&env, "migration_contract_snapshot"),),
+            (admin.clone(), env.ledger().timestamp()),
+        );
+
+        Ok(ContractSnapshot {
+            admin,
+            token,
+            min_topup,
+            next_id,
+            storage_version: STORAGE_VERSION,
+            timestamp: env.ledger().timestamp(),
+        })
+    }
+
+    /// **ADMIN ONLY**: Export a single subscription summary for migration tooling.
+    pub fn export_subscription_summary(
+        env: Env,
+        admin: Address,
+        subscription_id: u32,
+    ) -> Result<SubscriptionSummary, Error> {
+        require_admin_auth(&env, &admin)?;
+        let sub = queries::get_subscription(&env, subscription_id)?;
+
+        env.events().publish(
+            (Symbol::new(&env, "migration_export"),),
+            MigrationExportEvent {
+                admin: admin.clone(),
+                start_id: subscription_id,
+                limit: 1,
+                exported: 1,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(SubscriptionSummary {
+            subscription_id,
+            subscriber: sub.subscriber,
+            merchant: sub.merchant,
+            amount: sub.amount,
+            interval_seconds: sub.interval_seconds,
+            last_payment_timestamp: sub.last_payment_timestamp,
+            status: sub.status,
+            prepaid_balance: sub.prepaid_balance,
+            usage_enabled: sub.usage_enabled,
+        })
+    }
+
+    /// **ADMIN ONLY**: Export a paginated list of subscription summaries.
+    pub fn export_subscription_summaries(
+        env: Env,
+        admin: Address,
+        start_id: u32,
+        limit: u32,
+    ) -> Result<Vec<SubscriptionSummary>, Error> {
+        require_admin_auth(&env, &admin)?;
+        if limit > MAX_EXPORT_LIMIT {
+            return Err(Error::InvalidExportLimit);
+        }
+        if limit == 0 {
+            return Ok(Vec::new(&env));
+        }
+
+        let next_id: u32 = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "next_id"))
+            .unwrap_or(0);
+        if start_id >= next_id {
+            return Ok(Vec::new(&env));
+        }
+
+        let end_id = start_id.saturating_add(limit).min(next_id);
+        let mut out = Vec::new(&env);
+        let mut exported = 0u32;
+        let mut id = start_id;
+        while id < end_id {
+            if let Some(sub) = env.storage().instance().get::<u32, Subscription>(&id) {
+                out.push_back(SubscriptionSummary {
+                    subscription_id: id,
+                    subscriber: sub.subscriber,
+                    merchant: sub.merchant,
+                    amount: sub.amount,
+                    interval_seconds: sub.interval_seconds,
+                    last_payment_timestamp: sub.last_payment_timestamp,
+                    status: sub.status,
+                    prepaid_balance: sub.prepaid_balance,
+                    usage_enabled: sub.usage_enabled,
+                });
+                exported += 1;
+            }
+            id += 1;
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "migration_export"),),
+            MigrationExportEvent {
+                admin,
+                start_id,
+                limit,
+                exported,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(out)
     }
 
     pub fn set_grace_period(env: Env, admin: Address, grace_period: u64) -> Result<(), Error> {
