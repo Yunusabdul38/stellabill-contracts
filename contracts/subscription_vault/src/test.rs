@@ -25,7 +25,7 @@ fn setup_contract(env: &Env) -> (SubscriptionVaultClient, Address, Address) {
     let client = SubscriptionVaultClient::new(env, &contract_id);
     let token = Address::generate(env);
     let admin = Address::generate(env);
-    client.init(&token, &admin, &1_000000i128); // 1 USDC min_topup
+    client.init(&token, &6u32, &admin, &1_000000i128, &0u64); // 1 USDC min_topup, 0 grace period
     (client, token, admin)
 }
 
@@ -2067,7 +2067,8 @@ fn setup_batch_env(env: &Env) -> (SubscriptionVaultClient<'static>, Address, u32
     let subscriber = Address::generate(env);
     token_admin.mint(&subscriber, &100_000_000i128);
     let merchant = Address::generate(env);
-    let id0 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id0 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id0, &subscriber, &10_000000i128);
@@ -2114,7 +2115,8 @@ fn test_batch_charge_small_batch_5_subscriptions() {
 
     // Create 5 subscriptions with sufficient balance
     for _ in 0..5 {
-        let id = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+        let id =
+            client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
         token_admin.mint(&subscriber, &10_000000i128);
         client.deposit_funds(&id, &subscriber, &10_000000i128);
         ids.push_back(id as u32);
@@ -2151,7 +2153,8 @@ fn test_batch_charge_medium_batch_20_subscriptions() {
 
     // Create 20 subscriptions
     for _ in 0..20 {
-        let id = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+        let id =
+            client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
         token_admin.mint(&subscriber, &10_000000i128);
         client.deposit_funds(&id, &subscriber, &10_000000i128);
         ids.push_back(id as u32);
@@ -2187,7 +2190,8 @@ fn test_batch_charge_large_batch_50_subscriptions() {
 
     // Create 50 subscriptions to test scalability
     for _ in 0..50 {
-        let id = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+        let id =
+            client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
         token_admin.mint(&subscriber, &10_000000i128);
         client.deposit_funds(&id, &subscriber, &10_000000i128);
         ids.push_back(id as u32);
@@ -2322,11 +2326,13 @@ fn test_batch_charge_mixed_paused_and_active() {
     token_admin.mint(&subscriber, &100_000_000i128);
     let merchant = Address::generate(&env);
 
-    let id0 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id0 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id0, &subscriber, &10_000000i128);
 
-    let id1 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id1 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id1, &subscriber, &10_000000i128);
     client.pause_subscription(&id1, &subscriber); // Pause this one
@@ -2366,11 +2372,13 @@ fn test_batch_charge_mixed_cancelled_and_active() {
     token_admin.mint(&subscriber, &100_000_000i128);
     let merchant = Address::generate(&env);
 
-    let id0 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id0 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id0, &subscriber, &10_000000i128);
 
-    let id1 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id1 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id1, &subscriber, &10_000000i128);
     client.cancel_subscription(&id1, &subscriber); // Cancel this one
@@ -2438,7 +2446,7 @@ fn test_batch_charge_all_different_error_types() {
 
     // Sub 0: Success case
     let id_success =
-        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id_success, &subscriber, &10_000000i128);
 
@@ -2448,7 +2456,7 @@ fn test_batch_charge_all_different_error_types() {
 
     // Sub 2: Paused
     let id_paused =
-        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id_paused, &subscriber, &10_000000i128);
     client.pause_subscription(&id_paused, &subscriber);
@@ -2601,14 +2609,14 @@ fn test_batch_charge_partial_batch_correct_final_state() {
     let merchant = Address::generate(&env);
     let amount = 1_000_000i128;
 
-    let id0 = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false);
+    let id0 = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000_000i128);
     client.deposit_funds(&id0, &subscriber, &10_000_000i128);
 
     let id1 = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     // id1 has no funds - will fail
 
-    let id2 = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false);
+    let id2 = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000_000i128);
     client.deposit_funds(&id2, &subscriber, &10_000_000i128);
 
@@ -2659,7 +2667,7 @@ fn test_batch_charge_multiple_rounds_state_consistency() {
     let merchant = Address::generate(&env);
     let amount = 1_000_000i128;
 
-    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false);
+    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000_000i128);
     client.deposit_funds(&id, &subscriber, &10_000_000i128);
 
@@ -2769,7 +2777,7 @@ fn test_batch_charge_exhausts_balance_exactly() {
     let merchant = Address::generate(&env);
     let amount = 5_000_000i128;
 
-    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false);
+    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &amount);
     client.deposit_funds(&id, &subscriber, &amount); // Exact amount for one charge
 
@@ -2804,7 +2812,7 @@ fn test_batch_charge_balance_off_by_one_insufficient() {
     let merchant = Address::generate(&env);
     let amount = 5_000_000i128;
 
-    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false);
+    let id = client.create_subscription(&subscriber, &merchant, &amount, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &(amount - 1));
     client.deposit_funds(&id, &subscriber, &(amount - 1)); // One stroops short
 
@@ -2839,7 +2847,8 @@ fn test_batch_charge_result_indices_match_input_order() {
     token_admin.mint(&subscriber, &100_000_000i128);
     let merchant = Address::generate(&env);
 
-    let id0 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id0 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id0, &subscriber, &10_000000i128);
 
@@ -2847,7 +2856,8 @@ fn test_batch_charge_result_indices_match_input_order() {
         client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     // No funds for id1
 
-    let id2 = client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false);
+    let id2 =
+        client.create_subscription(&subscriber, &merchant, &1000i128, &INTERVAL, &false, &None);
     token_admin.mint(&subscriber, &10_000000i128);
     client.deposit_funds(&id2, &subscriber, &10_000000i128);
 
@@ -4398,7 +4408,7 @@ fn setup_property_env(
     // the desired state so arbitrary parameter combinations can be tested.
     let subscriber = Address::generate(&env);
     let merchant = Address::generate(&env);
-    let id = client.create_subscription(&subscriber, &merchant, &1i128, &1u64, &false);
+    let id = client.create_subscription(&subscriber, &merchant, &1i128, &1u64, &false, &None);
 
     let sub = Subscription {
         subscriber,
