@@ -5,6 +5,7 @@ mod admin;
 mod charge_core;
 mod merchant;
 mod queries;
+mod safe_math;
 mod state_machine;
 mod subscription;
 pub mod types;
