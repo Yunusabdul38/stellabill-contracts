@@ -165,7 +165,7 @@ pub fn list_subscriptions_by_subscriber(
     limit: u32,
 ) -> Result<SubscriptionsPage, Error> {
     if limit == 0 {
-        return Err(Error::NotFound);
+        return Err(Error::InvalidInput);
     }
 
     let next_id: u32 = env.storage().instance().get(&DataKey::NextId).unwrap_or(0);

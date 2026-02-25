@@ -17,7 +17,7 @@ pub fn do_init(env: &Env, token: Address, admin: Address, min_topup: i128) -> Re
         .set(&DataKey::SchemaVersion, &STORAGE_VERSION);
     env.events().publish(
         (Symbol::new(env, "initialized"),),
-        (token, admin, min_topup),
+        (token, admin, min_topup, grace_period),
     );
     Ok(())
 }
@@ -33,7 +33,7 @@ pub fn do_set_min_topup(env: &Env, admin: Address, min_topup: i128) -> Result<()
     admin.require_auth();
     let stored = require_admin(env)?;
     if admin != stored {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
     env.storage().instance().set(&DataKey::MinTopup, &min_topup);
     env.events()
@@ -90,7 +90,7 @@ pub fn do_rotate_admin(env: &Env, current_admin: Address, new_admin: Address) ->
         .ok_or(Error::NotFound)?;
 
     if current_admin != stored_admin {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     env.storage().instance().set(&DataKey::Admin, &new_admin);
@@ -119,7 +119,7 @@ pub fn do_recover_stranded_funds(
         .ok_or(Error::NotFound)?;
 
     if admin != stored_admin {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     if amount <= 0 {

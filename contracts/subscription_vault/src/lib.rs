@@ -15,7 +15,19 @@ pub use state_machine::{can_transition, get_allowed_transitions, validate_status
 pub use types::*;
 
 pub use queries::compute_next_charge_info;
-use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
+
+const STORAGE_VERSION: u32 = 1;
+const MAX_EXPORT_LIMIT: u32 = 100;
+
+fn require_admin_auth(env: &Env, admin: &Address) -> Result<(), Error> {
+    admin.require_auth();
+    let stored_admin = admin::require_admin(env)?;
+    if admin != &stored_admin {
+        return Err(Error::Unauthorized);
+    }
+    Ok(())
+}
 
 // ── Contract ─────────────────────────────────────────────────────────────────
 
@@ -86,6 +98,10 @@ impl SubscriptionVault {
     // ── Subscription lifecycle ───────────────────────────────────────────
 
     /// Create a new subscription. Caller deposits initial USDC; contract stores agreement.
+    ///
+    /// # Arguments
+    /// * `expiration` - Optional Unix timestamp (seconds). If `Some(ts)`, charges are blocked
+    ///                  at or after `ts`. Pass `None` for an open-ended subscription.
     pub fn create_subscription(
         env: Env,
         subscriber: Address,
@@ -93,6 +109,7 @@ impl SubscriptionVault {
         amount: i128,
         interval_seconds: u64,
         usage_enabled: bool,
+        _expiration: Option<u64>,
     ) -> Result<u32, Error> {
         subscription::do_create_subscription(
             &env,
@@ -186,11 +203,11 @@ impl SubscriptionVault {
     ///
     /// | Variant | Reason |
     /// |---------|--------|
-    /// | `NotFound` | Subscription ID does not exist. |
-    /// | `NotActive` | Subscription is not `Active`. |
-    /// | `UsageNotEnabled` | `usage_enabled` is `false`. |
+    /// | `NotFound` | Subscription ID does not exist in storage. |
+    /// | `NotActive` | Subscription is not in the `Active` state. |
+    /// | `UsageNotEnabled` | `usage_enabled` is flag is set to `false`. |
     /// | `InvalidAmount` | `usage_amount` is zero or negative. |
-    /// | `InsufficientPrepaidBalance` | Prepaid balance cannot cover the debit. |
+    /// | `InsufficientPrepaidBalance` | Prepaid balance in the vault cannot cover the debit. |
     pub fn charge_usage(env: Env, subscription_id: u32, usage_amount: i128) -> Result<(), Error> {
         charge_core::charge_usage_one(&env, subscription_id, usage_amount)
     }

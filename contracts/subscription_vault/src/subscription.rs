@@ -90,7 +90,7 @@ pub fn do_cancel_subscription(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if authorizer != sub.subscriber && authorizer != sub.merchant {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     validate_status_transition(&sub.status, &SubscriptionStatus::Cancelled)?;
@@ -146,7 +146,7 @@ pub fn do_withdraw_subscriber_funds(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if subscriber != sub.subscriber {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     if sub.status != SubscriptionStatus::Cancelled {

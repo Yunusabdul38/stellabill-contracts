@@ -42,13 +42,24 @@ pub enum DataKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
-    NotFound = 404,
+    // --- Auth Errors (401-403) ---
+    /// Caller does not have the required authorization or is not the admin.
+    /// Typically occurs when a required signature is missing.
     Unauthorized = 401,
-    /// Charge attempted before `last_payment_timestamp + interval_seconds`.
-    IntervalNotElapsed = 1001,
-    /// Subscription is not Active (e.g. Paused, Cancelled).
-    NotActive = 1002,
+    /// Caller is authorized but does not have permission for this specific action.
+    /// Occurs when a non-admin attempts to perform an admin-only operation.
+    Forbidden = 403,
+
+    // --- Not Found (404) ---
+    /// The requested resource (e.g. subscription) was not found in storage.
+    NotFound = 404,
+
+    // --- Invalid Input (400, 405-409) ---
+    /// The requested state transition is not allowed by the state machine.
+    /// The requested state transition is not allowed by the state machine.
+    /// E.g., attempting to resume a 'Cancelled' subscription.
     InvalidStatusTransition = 400,
+    /// The top-up amount is below the minimum required threshold configured by the admin.
     BelowMinimumTopup = 402,
     /// Arithmetic overflow in computation (e.g. amount * intervals).
     Overflow = 403,
@@ -249,6 +260,44 @@ pub struct RecoveryEvent {
     /// The documented reason for recovery
     pub reason: RecoveryReason,
     /// Timestamp when recovery was executed
+    pub timestamp: u64,
+}
+
+/// Exported snapshot of contract-level configuration for migration tooling.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ContractSnapshot {
+    pub admin: Address,
+    pub token: Address,
+    pub min_topup: i128,
+    pub next_id: u32,
+    pub storage_version: u32,
+    pub timestamp: u64,
+}
+
+/// Exported summary of a subscription for migration tooling.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionSummary {
+    pub subscription_id: u32,
+    pub subscriber: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub interval_seconds: u64,
+    pub last_payment_timestamp: u64,
+    pub status: SubscriptionStatus,
+    pub prepaid_balance: i128,
+    pub usage_enabled: bool,
+}
+
+/// Event emitted when a migration export is requested.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MigrationExportEvent {
+    pub admin: Address,
+    pub start_id: u32,
+    pub limit: u32,
+    pub exported: u32,
     pub timestamp: u64,
 }
 
