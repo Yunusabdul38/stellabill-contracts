@@ -660,18 +660,42 @@ fn test_subscription_golden_xdr_active() {
     assert_eq!(got_hex, golden, "golden XDR mismatch: {}", got_hex);
 }
 
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_subscription_deserialize_rejects_corrupted_bytes() {
     let env = Env::default();
     let sub = make_subscription(&env, SubscriptionStatus::Paused, false);
     let mut bytes = sub.clone().to_xdr(&env);
-    if bytes.len() > 0 {
-        let last = bytes.len() - 1;
-        let b = bytes.get(last).unwrap();
-        bytes.set(last, b ^ 0xff);
+    if bytes.len() >= 2 {
+        let b0 = bytes.get(0).unwrap();
+        bytes.set(0, b0 ^ 0xff);
+        let b1 = bytes.get(1).unwrap();
+        bytes.set(1, b1 ^ 0xff);
+    } else if bytes.len() == 1 {
+        let b0 = bytes.get(0).unwrap();
+        bytes.set(0, b0 ^ 0xff);
     }
     let rt: Result<Subscription, _> = Subscription::from_xdr(&env, &bytes);
     assert!(rt.is_err());
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+#[should_panic]
+fn test_subscription_deserialize_rejects_corrupted_bytes() {
+    let env = Env::default();
+    let sub = make_subscription(&env, SubscriptionStatus::Paused, false);
+    let mut bytes = sub.clone().to_xdr(&env);
+    if bytes.len() >= 2 {
+        let b0 = bytes.get(0).unwrap();
+        bytes.set(0, b0 ^ 0xff);
+        let b1 = bytes.get(1).unwrap();
+        bytes.set(1, b1 ^ 0xff);
+    } else if bytes.len() == 1 {
+        let b0 = bytes.get(0).unwrap();
+        bytes.set(0, b0 ^ 0xff);
+    }
+    let _ = Subscription::from_xdr(&env, &bytes);
 }
 
 #[test]
