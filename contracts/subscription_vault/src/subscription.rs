@@ -12,8 +12,9 @@ use soroban_sdk::{Address, Env, Symbol, Vec};
 
 pub fn next_id(env: &Env) -> u32 {
     let key = Symbol::new(env, "next_id");
-    let id: u32 = env.storage().instance().get(&key).unwrap_or(0);
-    env.storage().instance().set(&key, &(id + 1));
+    let storage = env.storage().instance();
+    let id: u32 = storage.get(&key).unwrap_or(0);
+    storage.set(&key, &(id + 1));
     id
 }
 
@@ -69,7 +70,7 @@ pub fn do_deposit_funds(
         .storage()
         .instance()
         .get(&Symbol::new(env, "token"))
-        .ok_or(Error::NotFound)?;
+        .ok_or(Error::NotInitialized)?;
     let token_client = soroban_sdk::token::Client::new(env, &token_addr);
 
     token_client.transfer(&subscriber, &env.current_contract_address(), &amount);
@@ -91,7 +92,7 @@ pub fn do_cancel_subscription(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if authorizer != sub.subscriber && authorizer != sub.merchant {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     validate_status_transition(&sub.status, &SubscriptionStatus::Cancelled)?;
@@ -131,6 +132,41 @@ pub fn do_resume_subscription(
     Ok(())
 }
 
+/// Merchant-initiated one-off charge: debits `amount` from the subscription's prepaid balance.
+/// Requires merchant auth; the subscription's merchant must match the caller. Subscription must be
+/// Active or Paused. Amount must be positive and not exceed prepaid_balance.
+pub fn do_charge_one_off(
+    env: &Env,
+    subscription_id: u32,
+    merchant: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    merchant.require_auth();
+
+    let mut sub = get_subscription(env, subscription_id)?;
+    if sub.merchant != merchant {
+        return Err(Error::Unauthorized);
+    }
+    if sub.status != SubscriptionStatus::Active && sub.status != SubscriptionStatus::Paused {
+        return Err(Error::NotActive);
+    }
+    if amount <= 0 {
+        return Err(Error::InvalidAmount);
+    }
+    if sub.prepaid_balance < amount {
+        return Err(Error::InsufficientPrepaidBalance);
+    }
+
+    sub.prepaid_balance = sub
+        .prepaid_balance
+        .checked_sub(amount)
+        .ok_or(Error::Overflow)?;
+
+    env.storage().instance().set(&subscription_id, &sub);
+
+    Ok(())
+}
+
 pub fn do_withdraw_subscriber_funds(
     env: &Env,
     subscription_id: u32,
@@ -141,7 +177,7 @@ pub fn do_withdraw_subscriber_funds(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if subscriber != sub.subscriber {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     if sub.status != SubscriptionStatus::Cancelled {
@@ -157,7 +193,7 @@ pub fn do_withdraw_subscriber_funds(
             .storage()
             .instance()
             .get(&Symbol::new(env, "token"))
-            .ok_or(Error::NotFound)?;
+            .ok_or(Error::NotInitialized)?;
         let token_client = soroban_sdk::token::Client::new(env, &token_addr);
 
         token_client.transfer(
