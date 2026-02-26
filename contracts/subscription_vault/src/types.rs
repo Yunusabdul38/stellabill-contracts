@@ -45,39 +45,25 @@ impl InsufficientBalanceError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
-    NotFound = 404,
+    // --- Auth Errors (401-403) ---
+    /// Caller does not have the required authorization or is not the admin.
+    /// Typically occurs when a required signature is missing.
     Unauthorized = 401,
-    /// Charge attempted before `last_payment_timestamp + interval_seconds`.
-    IntervalNotElapsed = 1001,
-    /// Subscription is not Active (e.g. Paused, Cancelled).
-    NotActive = 1002,
+    /// Caller is authorized but does not have permission for this specific action.
+    /// Occurs when a non-admin attempts to perform an admin-only operation.
+    Forbidden = 403,
+
+    // --- Not Found (404) ---
+    /// The requested resource (e.g. subscription) was not found in storage.
+    NotFound = 404,
+
+    // --- Invalid Input (400, 405-409) ---
+    /// The requested state transition is not allowed by the state machine.
+    /// The requested state transition is not allowed by the state machine.
+    /// E.g., attempting to resume a 'Cancelled' subscription.
     InvalidStatusTransition = 400,
+    /// The top-up amount is below the minimum required threshold configured by the admin.
     BelowMinimumTopup = 402,
-    /// Arithmetic overflow in computation (e.g. amount * intervals).
-    Overflow = 403,
-    /// Arithmetic underflow (e.g. negative amount or balance would go negative).
-    Underflow = 1010,
-    /// Charge failed due to insufficient prepaid balance.
-    ///
-    /// This error indicates that the subscription's prepaid balance is insufficient
-    /// to cover the charge amount. The subscription status transitions to
-    /// [`SubscriptionStatus::InsufficientBalance`].
-    ///
-    /// # Recovery
-    ///
-    /// The subscriber must call [`crate::SubscriptionVault::deposit_funds`] to add
-    /// more funds to their prepaid balance. Once sufficient funds are available,
-    /// the subscription can be charged again (either automatically or after
-    /// the subscriber calls [`crate::SubscriptionVault::resume_subscription`]).
-    ///
-    /// # Client Action
-    ///
-    /// UI/Backend should prompt the subscriber to add funds to their account.
-    InsufficientBalance = 1003,
-    /// Usage-based charge attempted on a subscription with `usage_enabled = false`.
-    UsageNotEnabled = 1004,
-    /// Usage-based charge amount exceeds the available prepaid balance.
-    InsufficientPrepaidBalance = 1005,
     /// The provided amount is zero or negative.
     InvalidAmount = 1006,
     /// Charge already processed for this billing period.
@@ -125,6 +111,8 @@ pub struct BatchChargeResult {
 }
 
 /// Represents the lifecycle state of a subscription.
+///
+/// See `docs/subscription_lifecycle.md` for how each status is entered and exited and for invariants.
 ///
 /// # State Machine
 ///
@@ -199,6 +187,10 @@ pub enum SubscriptionStatus {
 }
 
 /// Stores subscription details and current state.
+///
+/// The `status` field is managed by the state machine. Use the provided
+/// transition helpers to modify status, never set it directly.
+/// See `docs/subscription_lifecycle.md` for lifecycle and on-chain representation.
 ///
 /// Serialization: This named-field struct is encoded on-ledger as a ScMap keyed
 /// by the field names. Renaming fields, reordering is inconsequential to map

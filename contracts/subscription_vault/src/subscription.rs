@@ -1,5 +1,7 @@
 //! Subscription lifecycle: create, deposit.
 //!
+//! See `docs/subscription_lifecycle.md` for the full lifecycle and state machine.
+//!
 //! **PRs that only change subscription lifecycle or billing should edit this file only.**
 
 #![allow(dead_code)]
@@ -82,7 +84,7 @@ pub fn do_deposit_funds(
         .storage()
         .instance()
         .get(&Symbol::new(env, "token"))
-        .ok_or(Error::NotFound)?;
+        .ok_or(Error::NotInitialized)?;
     let token_client = soroban_sdk::token::Client::new(env, &token_addr);
 
     token_client.transfer(&subscriber, &env.current_contract_address(), &amount);
@@ -104,7 +106,7 @@ pub fn do_cancel_subscription(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if authorizer != sub.subscriber && authorizer != sub.merchant {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     validate_status_transition(&sub.status, &SubscriptionStatus::Cancelled)?;
@@ -189,7 +191,7 @@ pub fn do_withdraw_subscriber_funds(
     let mut sub = get_subscription(env, subscription_id)?;
 
     if subscriber != sub.subscriber {
-        return Err(Error::Unauthorized);
+        return Err(Error::Forbidden);
     }
 
     if sub.status != SubscriptionStatus::Cancelled {
@@ -205,7 +207,7 @@ pub fn do_withdraw_subscriber_funds(
             .storage()
             .instance()
             .get(&Symbol::new(env, "token"))
-            .ok_or(Error::NotFound)?;
+            .ok_or(Error::NotInitialized)?;
         let token_client = soroban_sdk::token::Client::new(env, &token_addr);
 
         token_client.transfer(
