@@ -59,7 +59,6 @@ pub enum Error {
 
     // --- Invalid Input (400, 405-409) ---
     /// The requested state transition is not allowed by the state machine.
-    /// The requested state transition is not allowed by the state machine.
     /// E.g., attempting to resume a 'Cancelled' subscription.
     InvalidStatusTransition = 400,
     /// The top-up amount is below the minimum required threshold configured by the admin.
@@ -74,6 +73,28 @@ pub enum Error {
     AlreadyInitialized = 1009,
     /// Recovery operation not allowed for this reason or context.
     RecoveryNotAllowed = 1011,
+    /// Invalid input provided to a function.
+    InvalidInput = 1015,
+
+    // --- Business Logic Errors (1001-1005, 1010, 1012-1014) ---
+    /// Interval has not elapsed since the last payment.
+    IntervalNotElapsed = 1001,
+    /// Subscription is not in an active state.
+    NotActive = 1002,
+    /// Insufficient balance in the subscription vault.
+    InsufficientBalance = 1003,
+    /// Usage charging is not enabled for this subscription.
+    UsageNotEnabled = 1004,
+    /// Insufficient prepaid balance for the requested usage charge.
+    InsufficientPrepaidBalance = 1005,
+    /// Combined balance would overflow i128.
+    Overflow = 1012,
+    /// Operation would result in an negative balance or underflow.
+    Underflow = 1010,
+    /// The contract or requested configuration is not initialized.
+    NotInitialized = 1013,
+    /// The requested export limit exceeds the maximum allowed.
+    InvalidExportLimit = 1014,
 }
 
 impl Error {
@@ -82,11 +103,12 @@ impl Error {
         match self {
             Error::NotFound => 404,
             Error::Unauthorized => 401,
+            Error::Forbidden => 403,
             Error::IntervalNotElapsed => 1001,
             Error::NotActive => 1002,
             Error::InvalidStatusTransition => 400,
             Error::BelowMinimumTopup => 402,
-            Error::Overflow => 403,
+            Error::Overflow => 1012,
             Error::Underflow => 1010,
             Error::InsufficientBalance => 1003,
             Error::UsageNotEnabled => 1004,
@@ -96,6 +118,9 @@ impl Error {
             Error::InvalidRecoveryAmount => 1008,
             Error::AlreadyInitialized => 1009,
             Error::RecoveryNotAllowed => 1011,
+            Error::InvalidInput => 1015,
+            Error::NotInitialized => 1013,
+            Error::InvalidExportLimit => 1014,
         }
     }
 }
@@ -216,6 +241,44 @@ pub struct Subscription {
     pub status: SubscriptionStatus,
     pub prepaid_balance: i128,
     pub usage_enabled: bool,
+}
+
+/// A read-only snapshot of the contract's configuration and current state.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ContractSnapshot {
+    pub admin: Address,
+    pub token: Address,
+    pub min_topup: i128,
+    pub next_id: u32,
+    pub storage_version: u32,
+    pub timestamp: u64,
+}
+
+/// A summary of a subscription's current state, intended for migration or reporting.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct SubscriptionSummary {
+    pub subscription_id: u32,
+    pub subscriber: Address,
+    pub merchant: Address,
+    pub amount: i128,
+    pub interval_seconds: u64,
+    pub last_payment_timestamp: u64,
+    pub status: SubscriptionStatus,
+    pub prepaid_balance: i128,
+    pub usage_enabled: bool,
+}
+
+/// Event emitted when subscriptions are exported for migration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MigrationExportEvent {
+    pub admin: Address,
+    pub start_id: u32,
+    pub limit: u32,
+    pub exported: u32,
+    pub timestamp: u64,
 }
 
 /// Defines a reusable subscription plan template.
